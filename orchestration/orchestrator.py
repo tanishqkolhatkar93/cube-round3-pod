@@ -61,13 +61,14 @@ def discover_inputs(subject_id: str, stage: str) -> list[dict]:
     """Captures for one stage live in data/input/<subject_id>/<stage>/ (override the root with INPUT_DIR).
 
     Each file becomes a content-addressed input {ref, kind, sha256}. Refs are relative to the input root:
-    never absolute (no local paths in evidence).
+    never absolute (no local paths in evidence). Refs are contract identifiers, not filesystem paths:
+    always forward slashes so evidence records are byte-identical across platforms.
     """
     root = Path(os.environ.get("INPUT_DIR", ROOT / "data" / "input"))
     folder = root / subject_id / stage
     if not folder.is_dir():
         return []
-    return [{"ref": str(p.relative_to(root)), "kind": KINDS.get(p.suffix.lower(), "other"),
+    return [{"ref": str(p.relative_to(root)).replace(os.sep, "/"), "kind": KINDS.get(p.suffix.lower(), "other"),
              "sha256": hashlib.sha256(p.read_bytes()).hexdigest()}
             for p in sorted(folder.iterdir()) if p.is_file() and not p.name.startswith(".")]
 
