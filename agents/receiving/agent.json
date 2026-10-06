@@ -1,10 +1,9 @@
 {
   "stage": "receiving",
-  "agent_id": "receiving-stub@0",
-  "owner": "@github-handle-of-the-owner",
+  "agent_id": "receiving-manager@1.0.0",
+  "owner": "@zainbuilds-dev",
   "mode": "inproc",
   "url": "http://localhost:8101",
   "module": "agents.receiving.app",
-  "implementation": "organiser-stub",
-  "notes": "Set mode to \"http\" if your agent is not Python or runs as its own service. Change implementation to a short honest description of what you built."
+  "implementation": "Round 2 agent ported: deterministic PIL quality gate -> blind extraction (OpenCV QR tier + Gemini VLM fallback chain, content-hash cached) -> 10 deterministic checks -> 6 contract checks with granular payload. Fail-open pending on missing captures or model failure; tenancy via org-scoped lookup (LookupError->404)."
 }
