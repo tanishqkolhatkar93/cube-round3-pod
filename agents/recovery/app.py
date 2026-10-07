@@ -9,10 +9,12 @@ Contract semantics:
 
 Gemini interprets evidence. Deterministic policy below owns the final
 Recovery semantics and claimability rules.
+
 """
 
 from __future__ import annotations
 
+import os
 from typing import Any
 
 from agents.recovery.gemini_client import GeminiError, interpret_charge
@@ -146,7 +148,7 @@ def _deterministic_position(
             "Prep evidence is uncertain",
             [prep["record_id"]],
         )
-    
+
     # F-10: Receiving supplier shortfall cannot prove channel-side lost inbound.
     if charge_type == "lost_inbound":
         receiving = [
@@ -215,6 +217,7 @@ def _build_pending(
         message=reason,
         retryable=True,
     )
+
 
 def handle(request: dict[str, Any]) -> dict[str, Any]:
     """Normal Round 3 agent entry point."""
@@ -362,13 +365,15 @@ def handle(request: dict[str, Any]) -> dict[str, Any]:
         if record.get("record_id")
     ]
 
+    model_name = os.getenv("GEMINI_MODEL", "gemini-3-flash-preview")
+
     record = build_record(
         request,
         agent_id=AGENT_ID,
         record_id=f"RCY-{subject_id}",
         model={
-            "name": "gemini-3-flash-preview",
-            "version": "gemini-3-flash-preview",
+            "name": model_name,
+            "version": model_name,
             "provider": "google",
             "prompt_version": "recovery-v1",
             "calls": model_calls,
