@@ -168,8 +168,11 @@ def test_override_references_the_evidence_and_changes_the_outcome_without_rewrit
     assert o["supersedes"] == {"record_id": prep_id, "override_id": None}
     assert (o["original_verdict"], o["previous_verdict"], o["new_verdict"], o["actor"]) == ("FAIL", "FAIL", "PASS", "op_amira")
     assert o["reason"] and o["at"]
-    assert (wf["status"], wf["final_outcome"]["outcome"]) == ("COMPLETED", "CLEAN")
+    # Declared downstream consumers must be reassessed before a clean outcome.
+    assert (wf["status"], wf["final_outcome"]["outcome"]) == ("IN_PROGRESS", "INCOMPLETE")
     assert wf["final_outcome"]["effective_verdicts"]["prep"] == "PASS"
+    wf = resume(wf["workflow_id"], STANDARD, store, fakes())
+    assert (wf["status"], wf["final_outcome"]["outcome"]) == ("COMPLETED", "CLEAN")
     assert json.dumps(store.get_evidence(prep_id), sort_keys=True) == before, "the original evidence is untouched"
     assert wf["stage_results"][1]["verdict"] == "FAIL", "the agent's own verdict is still on record"
     valid(wf)
@@ -182,6 +185,8 @@ def test_overrides_chain_and_latest_wins():
     wf = apply_override(wf["workflow_id"], store, record_id=prep_id, new_verdict="FAIL", actor="b", reason="second look")
     assert wf["overrides"][1]["supersedes"]["override_id"] == "OVR-001" and wf["overrides"][1]["previous_verdict"] == "PASS"
     assert wf["final_outcome"]["effective_verdicts"]["prep"] == "FAIL" and wf["final_outcome"]["outcome"] == "EXCEPTION"
+    assert wf["status"] == "RECOVERY_REQUIRED"
+    assert wf["final_outcome"]["provisional"] is True
 
 
 def test_overriding_a_claim_withdraws_it():
