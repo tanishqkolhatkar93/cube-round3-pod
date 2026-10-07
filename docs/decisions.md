@@ -105,3 +105,58 @@ CSV label replay. Existing orchestrator routing/error policy is unchanged, inclu
 its FAILED/provisional workflow classification for a pending stage. No Prep record is
 fabricated. Configuration, deployment trust assumptions and limitations are documented
 in [the Returns README](../agents/returns/README.md).
+
+
+### Shared orchestration P0 boundaries (2026-10-07)
+
+- The resource API now requires a server-created `orchestration.api.Principal`
+  in ASGI scope under `orchestration.principal`. Trusted authentication middleware
+  must authenticate the caller and set its org and actor. The application never
+  promotes an org/actor header, URL or request body into an identity. Missing
+  context returns 401; cross-org workflow reads/mutations return 404. Creation
+  with a different org or an impersonated override actor returns 403.
+- This is an authorization integration point, not a new identity provider.
+  Deployment must supply authentication middleware and protect direct service
+  access. Unconfigured resource access is deliberately denied. `/health` remains
+  public. The local CLI and unscoped MemoryStore/FileStore backends are privileged
+  operator interfaces, not APIs for untrusted callers. Resource handlers always
+  use `for_org(principal.org_id, actor=principal.actor)`; scoped handles cannot
+  widen their scope. The wire schemas are unchanged.
+- Output validation checks declared input/check membership, supplied upstream
+  record membership, workflow/org/subject scope, hashes and client compatibility.
+  In-process agents receive copies so they cannot mutate the validation context.
+  Agents can still declare inputs resolved through their own trusted registrations
+  (needed by Returns and the starter CSV adapters). The orchestrator checks
+  citation membership and supplied hash consistency; it does not authenticate a
+  dishonest agent's new media assertion or independently reopen its source files.
+- A completed result carrying an error, or PASS contradicting its checks, is
+  rejected. A separate degraded record retains the safe reported failure codes;
+  rejected output is not silently repaired or saved as valid evidence. No schema
+  extension or new status vocabulary is used.
+- Non-Recovery UNCERTAIN requires review even when the producer says otherwise.
+  The evidence remains unchanged; effective workflow review status enforces the
+  policy. Explicit human overrides remain possible. Existing Recovery SILENT
+  behavior is retained. No flow, retry count or provider behavior changes.
+- Overrides validate types, verdict, actor, reason and current target before
+  mutation. Changed upstream decisions invalidate completed consumers through
+  their declared `upstream_refs`, transitively. Old records remain in the evidence
+  history; current stage pointers are cleared and stages become pending. Final
+  outcomes exclude stale pointers immediately. Resume assigns a fresh request ID
+  and re-runs only invalidated/incomplete stages. Replacing a failed attempt also
+  invalidates completed consumers of that attempt. Undeclared dependencies cannot
+  be inferred: producers must declare everything they consume.
+- The existing assertion that an upstream override immediately produces CLEAN
+  despite completed downstream consumers was invalid under these requirements.
+  The workflow regression now requires reassessment before CLEAN and continues
+  to verify preservation of the original evidence and override chain.
+- Stores copy records on ingress/egress, verify evidence hashes on reads/writes,
+  refuse changed content under a record ID (including unhashed agent overrides),
+  constrain file identifiers, and refuse workflow ownership changes. Local file
+  publication uses unique temporary files and atomic replacement under a shared
+  OS file lock. Workflow mutations serialize through that lock, including agent
+  execution, favoring correctness over throughput. This is a single-host/local
+  filesystem design, not distributed storage; lock contention can time out.
+- Store corruption fails closed. Reused evidence IDs with changed agent content
+  become degraded `invalid_output`, never an overwrite. A crash between separate
+  evidence and workflow writes is not a multi-file transaction; reconciliation may
+  still be needed. Host filesystem owners and privileged local code remain trusted.
