@@ -77,3 +77,31 @@ A contradiction between documents or data is a **finding**, not a failure. Open 
 ## Your Pod's decisions
 
 _Add entries below._
+
+### Returns input boundary and replay
+
+Returns uses pinned Round 2 domain/validation/inference/rules behind a thin Round 3
+adapter. Explicit operator configuration selects either the unchanged organizer CSV
+or a tenant/client-scoped existing SQLite capture binding. Stored replay requires an
+exact attempt ID; live inspection requires an explicit local Ollama provider. There
+is no latest-attempt selection, source fallback, invented attestation, physical
+timestamp or label-to-observation conversion.
+
+The required physical timestamp in the evidence contract prevents export of existing
+CollectionLineage captures whose timestamp is explicitly ingestion time. These are
+rejected pending a separately approved upstream lineage solution. Synthetic timestamps
+remain explicitly synthetic. This is a production input blocker, not a reason to
+fabricate captures or modify the contract.
+
+A separate local SQLite ledger binds tenant/request ID, complete request fingerprint,
+selected source snapshot and exact output. Durable reservations prevent duplicate
+inference across workers/restarts; abandoned reservations require reconciliation and
+are never automatically retried. Evidence IDs include tenant/request identity. Prior
+evidence and overrides are retained as separate audit interpretations, not rewritten
+automated findings or trusted catalogue evidence.
+
+Missing organizer photos now produce pending/UNCERTAIN evidence instead of historic
+CSV label replay. Existing orchestrator routing/error policy is unchanged, including
+its FAILED/provisional workflow classification for a pending stage. No Prep record is
+fabricated. Configuration, deployment trust assumptions and limitations are documented
+in [the Returns README](../agents/returns/README.md).

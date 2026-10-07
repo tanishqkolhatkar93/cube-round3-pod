@@ -4,6 +4,8 @@ Starts all stub agents as uvicorn servers on free ports. If your agent is not Py
 as agent.json has mode "http" and your service is up (see shared/contracts/agent-api.md).
 """
 import importlib
+import os
+from pathlib import Path
 import socket
 import threading
 import time
@@ -73,9 +75,18 @@ def test_full_workflow_over_http_matches_in_process(http_mode, cases, monkeypatc
     case = next(c for c in cases if c["route"] == "fba" and c["returned"])
     over_http = run_workflow(case)
     monkeypatch.setenv("ORCH_MODE", "inproc")
+    # Independent workflow runs regenerate upstream timestamps. Compare transports
+    # with separate ledgers; replay itself must use byte-identical request content.
+    monkeypatch.setenv("RETURNS_STATE_DIR", str(Path(os.environ["RETURNS_STATE_DIR"]) / "inproc-comparison"))
     in_proc = run_workflow(case)
     assert (over_http["status"], over_http["final_outcome"]["outcome"]) == (in_proc["status"], in_proc["final_outcome"]["outcome"])
-    assert all(s["state"] in ("completed", "skipped") for s in over_http["stage_results"])
+    for workflow in (over_http, in_proc):
+        for stage in workflow["stage_results"]:
+            if stage["stage"] == "returns":
+                assert stage["state"] == "error" and stage["evidence_status"] == "pending"
+                assert stage["error"]["code"] == "missing_image" and stage["verdict"] == "UNCERTAIN"
+            else:
+                assert stage["state"] in ("completed", "skipped")
 
 
 def test_dead_agent_is_recorded_not_hidden(monkeypatch, cases):

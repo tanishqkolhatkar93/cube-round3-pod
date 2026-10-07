@@ -25,10 +25,21 @@ def test_example_validates(path):
 
 
 @pytest.mark.parametrize("folder", ["happy-path", "uncertain-path", "end-to-end"])
-def test_example_cases_still_produce_the_documented_outcome(folder):
-    """Re-run each example case with the stock stubs: the documented final outcome must still be what you get."""
+def test_example_cases_with_integrated_returns(folder):
+    """Static examples remain valid; missing Returns photos now produce explicit pending evidence."""
     case = json.loads((EXAMPLES / folder / "case.json").read_text())
     flow = load_flow(EXAMPLES.parent / "orchestration/flow.json")
-    wf = run_workflow(case, flow, MemoryStore())
+    store = MemoryStore()
+    wf = run_workflow(case, flow, store)
     documented = json.loads((EXAMPLES / folder / ("workflow-state.continue.json" if folder == "uncertain-path" else "workflow-state.json")).read_text())
-    assert (wf["status"], wf["final_outcome"]["outcome"]) == (documented["status"], documented["final_outcome"]["outcome"])
+    if case["returned"]:
+        stage = next(s for s in wf["stage_results"] if s["stage"] == "returns")
+        evidence = store.get_evidence(stage["record_id"])
+        assert stage["error"]["code"] == "missing_image"
+        assert evidence["status"] == "pending" and evidence["decision"]["verdict"] == "UNCERTAIN"
+        assert evidence["agent_id"] == "returns-manager@1"
+        expected_outcome = {"happy-path": "INCOMPLETE", "end-to-end": "CLAIM_RECOMMENDED"}[folder]
+        assert (wf["status"], wf["final_outcome"]["outcome"]) == ("FAILED", expected_outcome)
+        assert wf["final_outcome"]["provisional"] is True
+    else:
+        assert (wf["status"], wf["final_outcome"]["outcome"]) == (documented["status"], documented["final_outcome"]["outcome"])

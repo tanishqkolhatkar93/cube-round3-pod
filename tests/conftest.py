@@ -20,6 +20,21 @@ def inproc_by_default(monkeypatch):
     monkeypatch.setenv("ORCH_MODE", "inproc")
 
 
+@pytest.fixture(autouse=True)
+def returns_synthetic_configuration(tmp_path, monkeypatch):
+    """Explicit demo source and isolated durable state for each independent test."""
+    import shutil
+    shutil.copyfile(ROOT / "data/sample/returns_sample.csv", tmp_path / "returns_sample.csv")
+    config = tmp_path / "returns-config.json"
+    config.write_text(json.dumps({
+        "mode": "synthetic", "csv": "returns_sample.csv",
+        "tenants": [{"organization_id": "org_demo_alpha", "client_id": None},
+                    {"organization_id": "org_demo_bravo", "client_id": None}],
+    }), encoding="utf-8")
+    monkeypatch.setenv("RETURNS_CONFIG", str(config))
+    monkeypatch.setenv("RETURNS_STATE_DIR", str(tmp_path / "returns-state"))
+
+
 def applies(stage: str, case: dict) -> bool:
     return {"receiving": True, "recovery": True, "prep": case["route"] == "fba",
             "pack": case["route"] == "mfn", "returns": case["returned"]}[stage]
