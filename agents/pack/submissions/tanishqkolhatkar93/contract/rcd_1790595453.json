@@ -1,0 +1,31 @@
+{
+  "record_id": "rcd_1790595453",
+  "schema_version": "1.0",
+  "organization_id": "org_demo_alpha",
+  "client_id": "streamlit_post",
+  "agent": "main_vision_bot",
+  "subject": "UNIT-0042",
+  "captured_at": "2026-09-28T11:37:33.190362+00:00",
+  "operator_label": "OP-992",
+  "images": [
+    "e4ede009a2523f6514c2b0a7aa6c86bb6be1bb8e95b34b97780e4c8da0268e25"
+  ],
+  "checks": [
+    {
+      "check_key": "all_items_match",
+      "verdict": "UNCERTAIN",
+      "confidence": 0.3,
+      "detail": "The provided image does not show an open shipping box or its contents; it shows a street scene with motion blur. Therefore, it is impossible to verify the expected order lines.",
+      "model_version": "gemini-flash-lite",
+      "latency_ms": 5932
+    }
+  ],
+  "outcome": {
+    "decision": "UNCERTAIN",
+    "decided_by": "automated_agent",
+    "decided_at": "2026-09-28T11:37:33.190362+00:00"
+  },
+  "overrides": [],
+  "status": "processed",
+  "content_hash": "9e982b23554a88eb261405877394a68d356339e4f528fd1fec6c4aff77920fcc"
+}

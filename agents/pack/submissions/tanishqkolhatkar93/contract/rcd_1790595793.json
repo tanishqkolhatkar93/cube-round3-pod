@@ -1,0 +1,31 @@
+{
+  "record_id": "rcd_1790595793",
+  "schema_version": "1.0",
+  "organization_id": "org_demo_bravo",
+  "client_id": "streamlit_post",
+  "agent": "main_vision_bot",
+  "subject": "UNIT-0046",
+  "captured_at": "2026-09-28T11:43:13.155151+00:00",
+  "operator_label": "OP-991",
+  "images": [
+    "3cbb50184447a2853cf7816fe79a9ad314f0ceca89dba73b4e8fd17b0701d877"
+  ],
+  "checks": [
+    {
+      "check_key": "all_items_match",
+      "verdict": "PENDING",
+      "confidence": 1.0,
+      "detail": "Fail Open / Network Error",
+      "model_version": "gemini-flash-lite",
+      "latency_ms": 1577
+    }
+  ],
+  "outcome": {
+    "decision": "PENDING",
+    "decided_by": "automated_agent",
+    "decided_at": "2026-09-28T11:43:13.155151+00:00"
+  },
+  "overrides": [],
+  "status": "processed",
+  "content_hash": "5160651b863baebcb4360523a38fa1942cb8f1ab33999c67598ea0f07ff61f2b"
+}

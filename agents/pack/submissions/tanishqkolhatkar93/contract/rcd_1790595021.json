@@ -1,0 +1,31 @@
+{
+  "record_id": "rcd_1790595021",
+  "schema_version": "1.0",
+  "organization_id": "org_demo_alpha",
+  "client_id": "streamlit_post",
+  "agent": "main_vision_bot",
+  "subject": "UNIT-0042",
+  "captured_at": "2026-09-28T11:30:21.753534+00:00",
+  "operator_label": "OP-992",
+  "images": [
+    "d21d2c22910c6f349160cf32daefbca230db23a38dfd69453633447df31336bd"
+  ],
+  "checks": [
+    {
+      "check_key": "all_items_match",
+      "verdict": "STOP_AND_FIX",
+      "confidence": 1.0,
+      "detail": "The expected order requires one computer-keyboard and one computer-mouse, but only a computer-keyboard is observed in the box. The computer-mouse is missing.",
+      "model_version": "gemini-flash-lite",
+      "latency_ms": 136360
+    }
+  ],
+  "outcome": {
+    "decision": "STOP_AND_FIX",
+    "decided_by": "automated_agent",
+    "decided_at": "2026-09-28T11:30:21.753534+00:00"
+  },
+  "overrides": [],
+  "status": "processed",
+  "content_hash": "9e888360567d09d5d1a5c72a9439e61641831705be9fa8b2173cb7219f3d6a42"
+}

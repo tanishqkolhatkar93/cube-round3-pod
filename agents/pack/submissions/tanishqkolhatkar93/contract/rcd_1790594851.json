@@ -1,0 +1,31 @@
+{
+  "record_id": "rcd_1790594851",
+  "schema_version": "1.0",
+  "organization_id": "org_demo_alpha",
+  "client_id": "streamlit_post",
+  "agent": "main_vision_bot",
+  "subject": "UNIT-0042",
+  "captured_at": "2026-09-28T11:27:31.791063+00:00",
+  "operator_label": "OP-992",
+  "images": [
+    "d21d2c22910c6f349160cf32daefbca230db23a38dfd69453633447df31336bd"
+  ],
+  "checks": [
+    {
+      "check_key": "all_items_match",
+      "verdict": "SEAL",
+      "confidence": 1.0,
+      "detail": "The open shipping box contains exactly one computer-keyboard, which perfectly matches the expected order line of computer-keyboard:1 with no missing or extra items.",
+      "model_version": "gemini-flash-lite",
+      "latency_ms": 8832
+    }
+  ],
+  "outcome": {
+    "decision": "SEAL",
+    "decided_by": "automated_agent",
+    "decided_at": "2026-09-28T11:27:31.791063+00:00"
+  },
+  "overrides": [],
+  "status": "processed",
+  "content_hash": "d617421e078ad614a104478f071a35d7163293b8746750e6bae4651fe5e52dea"
+}
