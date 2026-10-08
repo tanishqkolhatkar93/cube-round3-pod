@@ -83,7 +83,10 @@ def test_recovery_honours_overrides_of_previous_evidence(cases):
 
 
 def test_agent_level_override_is_append_only(cases):
-    out = client_for("receiving").run(make_input("receiving", cases[0]), 30)
+    # Exercise the shared override contract on an explicit judgment. Real Receiving
+    # correctly has no checks when sample cases provide no authorized captures.
+    from tests.helpers import Fake
+    out = Fake().run(make_input("receiving", cases[0]), 30)
     rec, target = out["evidence"], out["evidence"]["checks"][0]
     new = add_agent_override(rec, by="op_test", target=target["check_key"], new_verdict="FAIL", reason="operator disagrees")
     assert new["overrides"][0]["original_verdict"] == target["verdict"]

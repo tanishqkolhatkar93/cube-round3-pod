@@ -26,7 +26,7 @@ def test_example_validates(path):
 
 @pytest.mark.parametrize("folder", ["happy-path", "uncertain-path", "end-to-end"])
 def test_example_cases_with_integrated_returns(folder):
-    """Static examples remain valid; missing Returns photos now produce explicit pending evidence."""
+    """Static examples remain valid; real agents require captures rather than CSV judgments."""
     case = json.loads((EXAMPLES / folder / "case.json").read_text())
     flow = load_flow(EXAMPLES.parent / "orchestration/flow.json")
     store = MemoryStore()
@@ -42,4 +42,8 @@ def test_example_cases_with_integrated_returns(folder):
         assert (wf["status"], wf["final_outcome"]["outcome"]) == ("FAILED", expected_outcome)
         assert wf["final_outcome"]["provisional"] is True
     else:
-        assert (wf["status"], wf["final_outcome"]["outcome"]) == (documented["status"], documented["final_outcome"]["outcome"])
+        receiving = next(s for s in wf["stage_results"] if s["stage"] == "receiving")
+        assert receiving["error"]["code"] == "upstream_missing"
+        assert receiving["evidence_status"] == "pending" and receiving["verdict"] == "UNCERTAIN"
+        assert (wf["status"], wf["final_outcome"]["outcome"]) == ("FAILED", "INCOMPLETE")
+        assert wf["final_outcome"]["provisional"] is True
