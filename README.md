@@ -56,6 +56,12 @@ make serve            # orchestrator API on :8100 (POST /workflows, GET /workflo
 
 Out of the box everything runs on **organiser stub agents** replaying the synthetic Round 2 CSVs. **Replacing a stub with your real agent is your job.**
 
+## Operations console
+
+Run `make serve` (or, on Windows, `.venv\Scripts\python.exe -m uvicorn orchestration.api:app --port 8100`) and open [http://localhost:8100](http://localhost:8100) for the browser-based workflow console. It provides controls for workflow creation, stage/evidence review, resume and human overrides. The dashboard keeps its recent workflow IDs in the current browser; use the workflow ID lookup to open a workflow created elsewhere.
+
+The console is served by the orchestrator and uses the existing API. Protected workflow endpoints require trusted host-side authentication middleware to set `orchestration.principal`; the starter does not include a login or authentication middleware, so those actions return `401` until one is configured. The console does not treat a typed organization ID or browser-supplied header as authentication and does not store credentials. Keep `/health` public only as intended by the API, and do not expose the service publicly without configuring trusted authentication and authorization.
+
 Run an agent as its own service:
 
 ```sh

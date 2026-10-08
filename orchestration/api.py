@@ -7,6 +7,7 @@
   POST /workflows/{id}/resume     -> continue after a halt / decision / failure
   POST /workflows/{id}/overrides  {"record_id": "...", "new_verdict": "PASS", "actor": "...", "reason": "..."}
   GET  /health                    -> orchestrator and every agent in the flow
+  GET  /                          -> same-origin operations console
 Resource routes require a Principal in ASGI scope from trusted authentication middleware.
 No client header or body value establishes that identity. Unconfigured access fails closed.
 """
@@ -14,9 +15,11 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass
+from pathlib import Path
 
 from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
 
 from shared.utils import sample_data
 
@@ -27,6 +30,7 @@ from .store import EvidenceConflict, FileStore, StoreIntegrityError, identifier
 app = FastAPI(title="CUBE Round 3 orchestrator")
 FLOW = os.environ.get("ORCH_FLOW") or default_flow_path()
 STORE = FileStore()
+FRONTEND_DIR = Path(__file__).resolve().parents[1] / "frontend"
 
 
 @app.get("/health")
@@ -125,3 +129,6 @@ def override(workflow_id: str, body: dict, principal: Principal = Depends(requir
                               reason=body.get("reason", ""), new_outcome=body.get("new_outcome"))
     except ValueError:
         raise HTTPException(422, "invalid override") from None
+
+
+app.mount("/", StaticFiles(directory=FRONTEND_DIR, html=True), name="frontend")
