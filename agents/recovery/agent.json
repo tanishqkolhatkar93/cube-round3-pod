@@ -1,7 +1,7 @@
 {
   "stage": "recovery",
   "agent_id": "recovery-manager@1.0.0",
-  "owner": "@github-handle-of-the-owner",
+  "owner": "@Sri-Satya-Bhamidipati",
   "mode": "inproc",
   "url": "http://localhost:8105",
   "module": "agents.recovery.app",

@@ -3,6 +3,7 @@
 Recovery evaluates each fee line against the accumulated upstream evidence.
 
 Contract semantics:
+
     PASS      evidence supports the charge -> no claim
     FAIL      evidence contradicts the charge -> claim recommended
     UNCERTAIN evidence is silent/insufficient -> never claim
@@ -17,7 +18,6 @@ from __future__ import annotations
 import os
 from typing import Any
 
-from agents.recovery.gemini_client import GeminiError, interpret_charge
 from shared.utils import sample_data
 from shared.utils.records import (
     build_output,
@@ -28,6 +28,7 @@ from shared.utils.records import (
 )
 from shared.utils.server import make_app
 from shared.utils.stubs import effective_verdict, previous
+from .gemini_client import DEFAULT_MODEL, PROMPT_VERSION, GeminiError, interpret_charge
 
 
 STAGE = "recovery"
@@ -365,7 +366,7 @@ def handle(request: dict[str, Any]) -> dict[str, Any]:
         if record.get("record_id")
     ]
 
-    model_name = os.getenv("GEMINI_MODEL", "gemini-3-flash-preview")
+    model_name = os.getenv("GEMINI_MODEL", DEFAULT_MODEL)
 
     record = build_record(
         request,
@@ -375,7 +376,7 @@ def handle(request: dict[str, Any]) -> dict[str, Any]:
             "name": model_name,
             "version": model_name,
             "provider": "google",
-            "prompt_version": "recovery-v1",
+            "prompt_version": PROMPT_VERSION,
             "calls": model_calls,
         },
         captured_at=max(
