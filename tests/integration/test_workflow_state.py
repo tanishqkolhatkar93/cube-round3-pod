@@ -253,9 +253,13 @@ def test_returns_only_when_a_return_happened(cases):
         assert (states(run_workflow(case, STANDARD))["returns"] != "skipped") == case["returned"]
 
 
-def test_unrouted_subject_skips_prep_and_pack_but_completes_the_rest(cases):
-    s = states(run_workflow(next(c for c in cases if c["route"] == "unknown"), STANDARD))
-    assert s["prep"] == s["pack"] == "skipped" and s["receiving"] == s["recovery"] == "completed"
+def test_unrouted_subject_skips_prep_and_pack_and_preserves_missing_receiving(cases):
+    wf = run_workflow(next(c for c in cases if c["route"] == "unknown"), STANDARD)
+    s = states(wf)
+    assert s["prep"] == s["pack"] == "skipped" and s["recovery"] == "completed"
+    receiving = next(r for r in wf["stage_results"] if r["stage"] == "receiving")
+    assert s["receiving"] == "error" and receiving["error"]["code"] == "upstream_missing"
+    assert wf["status"] == "FAILED" and wf["final_outcome"]["provisional"]
 
 
 def test_specialist_flow_has_no_prep_and_recovery_stays_silent_on_inbound_fees(cases):

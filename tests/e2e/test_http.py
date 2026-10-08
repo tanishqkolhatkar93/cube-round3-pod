@@ -85,6 +85,9 @@ def test_full_workflow_over_http_matches_in_process(http_mode, cases, monkeypatc
             if stage["stage"] == "returns":
                 assert stage["state"] == "error" and stage["evidence_status"] == "pending"
                 assert stage["error"]["code"] == "missing_image" and stage["verdict"] == "UNCERTAIN"
+            elif stage["stage"] == "receiving":
+                assert stage["state"] == "error" and stage["evidence_status"] == "pending"
+                assert stage["error"]["code"] == "upstream_missing" and stage["verdict"] == "UNCERTAIN"
             else:
                 assert stage["state"] in ("completed", "skipped")
 

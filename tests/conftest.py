@@ -45,3 +45,12 @@ def make_input(stage: str, case: dict, previous=None, overrides=None) -> dict:
     return {"schema_version": "1.0", "request_id": f"{wf}:{stage}", "workflow_id": wf, "stage": stage,
             "subject": {"org_id": case["org_id"], "subject_id": case["unit_id"], "route": case["route"]},
             "inputs": [], "previous_evidence": previous or [], "context": {"overrides": overrides or [], "case": case}}
+
+
+@pytest.fixture(autouse=True)
+def receiving_isolated_state(tmp_path, monkeypatch):
+    """Independent test workflows must not share the Receiving replay ledger."""
+    monkeypatch.setenv("RECEIVING_STATE_DIR", str(tmp_path / "receiving-state"))
+    registry = tmp_path / "receiving-captures.json"
+    registry.write_text('{"captures": []}', encoding="utf-8")
+    monkeypatch.setenv("RECEIVING_CAPTURE_REGISTRY", str(registry))
