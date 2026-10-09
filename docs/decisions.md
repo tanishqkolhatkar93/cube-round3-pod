@@ -160,3 +160,52 @@ in [the Returns README](../agents/returns/README.md).
   become degraded `invalid_output`, never an overwrite. A crash between separate
   evidence and workflow writes is not a multi-file transaction; reconciliation may
   still be needed. Host filesystem owners and privileged local code remain trusted.
+
+### Receiving findings and decisions
+
+- D-R1: Stage fixtures against the owning unit's specification. Zain's original
+  UNIT-0012 and UNIT-0039 images remain known PO mismatches; regeneration remains
+  fixture work, not a reason to suppress adverse judgments.
+- D-R2: DEGRADED photos are used and recorded. REJECTED photos cannot support
+  PASS. Mixed usable/rejected required captures leave the inspection pending.
+- D-R3: Contract references use canonical forward slashes. The authoritative
+  registered resolver rejects backslash aliases, traversal, encoded paths,
+  absolute/drive/UNC paths and symlinks/junctions; no basename fallback remains.
+- D-R4: Generated fixture text/watermarks can confuse label extraction. These
+  synthetic images must not be presented as physical receiving evidence.
+- D-R5: Observation caching is content/model/prompt based and uses serialized
+  SQLite publication. Cache hits retain model identity and count zero SDK calls;
+  explicit retries/fallback calls are counted even when they fail.
+- D-R6: Preserve Zain's RCV- plus 12 SHA256 hex characters of request_id on all
+  paths. Scope the separate request ledger by tenant/workflow/subject/request.
+  Globally scoped request IDs remain necessary for the shared immutable store.
+- D-R7: An existing request cannot change because a missing capture arrived.
+  Changed request/spec/capture content conflicts; reconcile with a new attempt ID.
+- D-R8: All applicable checks affect the final verdict, including units_per_carton.
+  Extraction errors cannot silently discard required evidence or produce PASS.
+
+
+### D-POD-2026-10-09 — registered Pack and Recovery integration
+
+- Preserve Test 911abdb and its Returns/orchestration hardening. Receiving e5dcbe4
+  reconciles the two Receiving implementations and latest adversarial fixes;
+  Prep 32d017c is merged, with explicit test fixture composition.
+- Replace the actual Pack/Recovery stub entry points, not disconnected prototypes.
+  Operator-owned registrations bind org, subject, workflow, input bytes and capture
+  time. Requests assert the complete registered input set; no sample-data fallback.
+- Reuse Prep's strict primitives, protected-file reader and RequestStore in the new
+  agents/secure_runtime.py. This creates an explicit dependency on integrated Prep;
+  no existing Prep, Returns, orchestration or shared-contract behavior is changed.
+- Pack model responses contain facts only. Deterministic item/count/extra checks
+  control SEAL. Incomplete/invalid/contradictory input cannot be a completed PASS.
+- Recovery retains PR #8 deterministic rules. Financial claims require exact scope
+  and references, complete registered fee reports and eligible evidence. Unknown
+  policies stay silent. Explicitly complete zero-line reports can prove no fees.
+  A request cannot authorize its own workflow override; registration and chain
+  validation are required. Reassessment needs a new request ID.
+- One batched provider call per unit is isolated in a killable worker. There are no
+  retries. The deadline includes preprocessing budget; late judgments are discarded.
+  Parent-owned attempted-call/model accounting survives timeout and cleanup failure.
+- Protected internal invocation is a deployment requirement, consistent with the
+  other modules. Content hashes and agent-ID allowlists are not digital signatures.
+  Offline tests certify contracts and safety logic, not live model accuracy.

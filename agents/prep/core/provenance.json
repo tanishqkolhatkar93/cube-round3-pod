@@ -1,0 +1,16 @@
+{
+  "repository": "https://github.com/Manvith111/cube26-prp-0319-manvith111",
+  "commit": "f5f8ad98fa8085a092c796b0681689d52ffc871e",
+  "source_file_sha256": {
+    "src/lib/rules.ts": "fdc9c2234a95a0ea99d592fae37c7416512c54328b84c932cd6c84dd507070ab",
+    "src/lib/prepRequirements.ts": "20dc38023c69f7f15ec105d178aa851198950af6580ab2606ac2aa5da85f27ad",
+    "src/lib/rulePacks/fba-v1.ts": "d74763e7f808af1dd17890670db577dc47c2971537a5d9b15328563278891b87",
+    "src/lib/rulePacks/index.ts": "9708e26e2e3ad7bd6dd52673d4734323196126c296ee15c4cb39ea0a0722eae1",
+    "src/lib/rulePacks/types.ts": "f9c6a0dbcc2c0f25b46893618675875aae6f12eac287916eb6613f1ceb21df00",
+    "src/lib/types.ts": "625d22fb82bf7997471483d7eb20dea6ea65a1613b7527e4e6cfe96c5b9237db",
+    "src/lib/vision.ts": "6431b925ee9333bc7271f0856c963cb2a0ed8b6d2fd7067b747b8abdd0fddc18"
+  },
+  "adaptation": "pod14-prep-manager@1",
+  "rule_pack": "organizer-fba@1-pod14.1",
+  "policy_authority": "organizer implementation; not independently verified marketplace policy"
+}

@@ -1,44 +1,55 @@
-# agents/pack/  ·  Pack Manager
+# Pack Manager � registered captures and deterministic decisions
 
-**Owner:** Member 3 (Pack Manager)  (set `owner` in `agent.json` and the handle in `.github/CODEOWNERS`)
+The actual `agents.pack.app.handle` and `/run` execute `adapter.py`; no organizer
+CSV is read in production and no disconnected Round 2 prototype is deployed.
 
-> **This folder currently contains an organiser stub** that replays the synthetic Round 2 CSV. It is *not* an agent. Replace it, then replace this README with one that describes what you actually built, how to run it, and its limits.
+Set `PACK_CONFIG` to an operator-owned JSON registration and `PACK_STATE_DIR` to
+a protected durable directory. Registrations must be outside state. The service
+is an internal orchestrator capability: protect `/run` with deployment authentication.
+JSON organization fields and canonical hashes are not authentication/signatures.
+`/health` is degraded without valid configuration. Direct and HTTP requests use
+the same validation; wrong ownership is 404, invalid inputs 422, reused request
+content conflicts 409. Nothing auto-registers a request's captures.
 
-| | |
-|---|---|
-| **Reads (inputs)** | A photo of the open box before sealing, and the order lines |
-| **Reads (previous evidence)** | Receiving |
-| **Produces** | items present, quantities correct, nothing extra; seal or stop-and-fix |
-| **Recommended `check_key`s** | `items_present, quantities_correct, no_extra_items` |
-| **`decision.outcome` values** | `seal, stop_and_fix, pending_review` |
+## Registration (version 1)
 
-Only merchant-fulfilled / 3PL units reach Pack (`route == "mfn"`): Amazon packs FBA boxes. Your record is what Returns and Recovery rely on to say what was actually sent, so the `observed_in_box` evidence must be citable.
+The config has `version: 1`, `bindings: [...]` and optional `provider`.
+Each binding requires `org_id`, `subject_id`, `workflow_id`, a physical
+`captured_at` timestamp with timezone, `files`, `trusted_agents`, and for Pack,
+`order_lines` mapping SKU to positive integer quantity. `refs.order_id` is
+required to bind the capture to an actual order. Each file has `ref`, relative `path`, SHA-256 `sha256`, and
+`kind: image`. Paths are relative to the config directory. Register all required
+views. Requests MUST submit the complete registered set with matching hashes.
+Only PNG/JPEG/WEBP images up to 10 MB and 20 million pixels are accepted (8 files
+maximum). Links, path aliases and cross-owner refs are rejected.
 
-## Where your code goes
+`trusted_agents` maps allowed upstream stage names to exact agent IDs. Pack
+accepts Receiving audit context only; it never treats earlier PASS as proof that
+this order was packed. Upstream schema, hash, scope and references are validated.
+Use `client_id` when deployment requires a client boundary.
 
-```text
-agents/pack/
-├── app.py          ← expose  handle(agent_input: dict) -> dict  (an Agent Output). Keep `app = make_app(...)` to serve over HTTP.
-├── agent.json      ← stage · agent_id · owner · mode (inproc | http) · url · an honest `implementation` description
-├── PROVENANCE.md   ← your Round 2 repo URL + commit this came from (create it)
-├── README.md       ← this file, rewritten
-└── …               ← your Round 2 code, prompts, rules, fixtures
+Provider example (inside config):
+```json
+{"model":"gemini-3-flash-preview","api_key_env":"GEMINI_API_KEY","deadline_s":20}
 ```
+The key is read from the environment, never stored in config/evidence. There is
+one batched REST Gemini invocation with inline image bytes, no retries, and a
+killable worker deadline including response and cleanup. Attempt/model accounting
+is received before work completes and retained on failure. Unknown actual model
+versions remain `unknown`; errors never expose raw provider messages.
 
-## Integrating, in order
+The model reports per-image SKU/count observations, visibility and completeness.
+It cannot grant SEAL. Every view must be usable, complete and consistent. Missing,
+partial, contradictory or malformed observations yield pending/UNCERTAIN.
+The three organizer checks (items present, exact quantities, no extra items)
+are deterministic; any FAIL produces stop_and_fix. Canonical evidence uses a
+scoped SHA-256 identity and durable SQLite replay. Changed request/source/config
+content requires a new request ID; interrupted reservations require reconciliation.
 
-1. Read [`INTEGRATION-GUIDE.md`](../../INTEGRATION-GUIDE.md) and [`EVIDENCE-CONTRACT.md`](../../EVIDENCE-CONTRACT.md); open [`examples/end-to-end/`](../../examples/) for a real Agent Output.
-2. In `handle()`: read `request["subject"]`, `request["inputs"]` (your captures) and `request["previous_evidence"]`; run your agent (**one batched model call per unit**); build the record with `shared.utils.records.build_record()` and wrap it with `build_output()`.
-3. **Fail open.** On a model error return `pending_output(...)`, not an exception. Never invent evidence: if you did not see it, say UNCERTAIN with an `uncertain_reason`.
-4. **Refuse other tenants.** Raise `LookupError` (HTTP 404) for a subject that is not under `subject.org_id`.
-5. Make it idempotent: the same `request_id` must yield the same `record_id`. Use the **latest override** of previous evidence (`context.overrides`).
-6. Run `pytest tests/integration/test_agent_contracts.py`, first on the stub (it passes), then on yours, **with your own fixtures**.
-7. Run the whole system: `make run` and `make test`.
+Tests use generated images and explicitly injected observations. They do not
+certify real model accuracy. Deployments must validate capture coverage and live
+provider behavior. Production does not import test fixtures.
 
-## Run on its own
-
-```sh
-.venv/bin/uvicorn agents.pack.app:app --port 8103
-curl localhost:8103/health
-```
-Then set `"mode": "http"` in `agent.json` if you want the orchestrator to call it over HTTP.
+The provider worker has a hard cancellation deadline; trusted local filesystem
+I/O is not preemptible. Late completed judgments are suppressed. Use protected
+local storage, not an unbounded remote filesystem.

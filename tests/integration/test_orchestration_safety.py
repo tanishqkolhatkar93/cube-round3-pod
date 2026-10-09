@@ -231,11 +231,14 @@ def test_scoped_override_cannot_impersonate_another_actor(backend):
 
 def test_upstream_override_reassesses_claim_and_preserves_unrelated_stage_and_history(backend):
     # Same Prep PASS -> claim -> override FAIL counterexample, using the actual Recovery position rule.
-    from agents.recovery.app import position
+    from agents.recovery.rules import _deterministic_position
+    from shared.utils.stubs import effective_verdict
     def independent(rec, req):
         rec["upstream_refs"] = []
     def recover(rec, req):
-        pos, why, ids = position({"charge_type": "inbound_defect_fee"}, req)
+        evidence = [{**r, "effective_verdict": effective_verdict(req, r)}
+                    for r in req["previous_evidence"] if r["status"] == "completed"]
+        pos, why, ids = _deterministic_position({"charge_type": "inbound_defect_fee", "amount_usd": 2}, evidence)
         verdict = "FAIL" if pos == "CONTRADICTS" else "PASS"
         rec["checks"] = [check("charge", verdict, None, evidence_refs=ids)]
         rec["decision"].update(verdict=verdict, reason=why)
