@@ -71,6 +71,17 @@ class Scenarios:
         binding=next(b for b in self.configs['recovery']['bindings'] if b['subject_id']==unit)
         binding.setdefault('trusted_overrides',[]).append(copy.deepcopy(override));self.save('recovery')
 
+    def set_fee_report(self,unit,lines):
+        """Register explicit synthetic source facts before a workflow starts."""
+        binding=next(b for b in self.configs['recovery']['bindings'] if b['subject_id']==unit)
+        item=binding['files'][0];path=self.root/item['path']
+        report=json.loads(path.read_bytes())
+        report.update(lines=copy.deepcopy(lines),line_count=len(lines),complete=True)
+        raw=json.dumps(report).encode();path.write_bytes(raw)
+        item['sha256']=hashlib.sha256(raw).hexdigest()
+        self.inputs[(unit,'recovery')][0]['sha256']=item['sha256']
+        self.save('recovery')
+
     def invoke(self,config,prompt,payload,images,stats):
         self.calls.append([i['ref'] for i in images])
         for i in images:

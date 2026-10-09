@@ -49,6 +49,13 @@ the original organizer-stub golden dataset, now inapplicable to real agents. All
 real integration assertions remain, using explicit trusted synthetic registrations.
 Two Windows uvicorn/websockets deprecation warnings are not hidden.
 
+Positive FBA and MFN workflows additionally run over both real HTTP and in-process
+clients in `tests/e2e/test_registered_pod.py`. Only observation transports are
+replaced with synthetic facts. Registered fee reports explicitly contain a
+supported inbound-defect fee (FBA) or a complete zero-fee report (MFN); the real
+rules, hashes, handoffs and durable ledgers execute. Sample unresolved fee types
+remain conservative and are not relabeled as successful claims.
+
 ## Deployment limits
 
 All five entry points are real implementations, but deployment still requires
