@@ -5,6 +5,8 @@ from pathlib import Path
 
 import pytest
 
+from agents.prep.tests.integration_support import prep_synthetic
+
 from orchestration.orchestrator import apply_override, bundle, discover_inputs, flow_stages, load_flow, resume, run_workflow
 from orchestration.store import FileStore, MemoryStore
 from shared.utils.schema import errors
@@ -37,7 +39,7 @@ def test_audit_trail_explains_every_stage(cases):
     assert any(t["event"] == "status_changed" and t["to_status"] == wf["status"] for t in wf["transitions"])
 
 
-def test_claim_names_amount_and_cites_evidence(cases):
+def test_claim_names_amount_and_cites_evidence(cases, prep_synthetic):
     if "prep" not in flow_stages():
         pytest.skip("Specialist flow has no Prep evidence, so the sample contains no claimable charge")
     store = MemoryStore()

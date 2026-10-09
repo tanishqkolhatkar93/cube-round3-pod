@@ -5,6 +5,8 @@ When you replace the stub, replace the sample loop with your own fixtures, but k
 """
 import pytest
 
+from agents.prep.tests.integration_support import prep_synthetic
+
 from orchestration.clients import AgentRejected, client_for
 from shared.utils.hashing import verify
 from shared.utils.records import add_agent_override
@@ -15,8 +17,9 @@ PREFIX = {"receiving": "RCV", "prep": "PRP", "pack": "PCK", "returns": "RTN", "r
 
 
 @pytest.mark.parametrize("stage", AGENTS)
-def test_outputs_are_contract_valid(stage, cases):
+def test_outputs_are_contract_valid(stage, cases, prep_synthetic):
     client, checked = client_for(stage), 0
+    prep_orgs = set()
     for case in (c for c in cases if applies(stage, c)):
         out = client.run(make_input(stage, case), 30)
         assert errors("agent-output", out) == [], f"{stage} {case['unit_id']}"
@@ -31,39 +34,52 @@ def test_outputs_are_contract_valid(stage, cases):
             if c["verdict"] == "UNCERTAIN":
                 assert c.get("uncertain_reason"), "UNCERTAIN needs a reason (it is a verdict, not a shrug)"
         checked += 1
+        if stage == "prep":
+            assert out["status"] == "completed" and out["error"] is None
+            prep_orgs.add(ev["subject"]["org_id"])
     assert checked > 0
+    if stage == "prep":
+        assert prep_orgs == {"org_demo_alpha", "org_demo_bravo"}
+        assert sum(prep_synthetic.calls.values()) == checked
 
 
 @pytest.mark.parametrize("stage", AGENTS)
-def test_other_tenant_gets_nothing(stage, cases):
+def test_other_tenant_gets_nothing(stage, cases, prep_synthetic):
     """Tenancy: asking for a subject under the wrong org must be refused, never answered."""
     case = next(c for c in cases if applies(stage, c))
     other = "org_demo_bravo" if case["org_id"] == "org_demo_alpha" else "org_demo_alpha"
-    with pytest.raises(AgentRejected):
+    with pytest.raises(AgentRejected) as rejected:
         client_for(stage).run(make_input(stage, {**case, "org_id": other}), 30)
+    if stage == "prep":
+        assert "source_not_found" in str(rejected.value)
+        assert not prep_synthetic.calls
 
 
 @pytest.mark.parametrize("stage", AGENTS)
-def test_same_request_same_record_id(stage, cases):
+def test_same_request_same_record_id(stage, cases, prep_synthetic):
     case = next(c for c in cases if applies(stage, c))
     req = make_input(stage, case)
     client = client_for(stage)
     assert client.run(req, 30)["evidence"]["record_id"] == client.run(req, 30)["evidence"]["record_id"]
+    if stage == "prep":
+        assert sum(prep_synthetic.calls.values()) == 1
 
 
-def test_each_stage_can_consume_the_previous_stages_output(cases):
+def test_each_stage_can_consume_the_previous_stages_output(cases, prep_synthetic):
     """The hand-off: feed every stage the evidence the earlier stages produced; it must work and reference it."""
     case = next(c for c in cases if c["route"] == "fba" and c["returned"])
     previous = []
     for stage in [s for s in AGENTS if applies(s, case)]:
         out = client_for(stage).run(make_input(stage, case, previous), 30)
         assert errors("agent-output", out) == []
+        if stage == "prep":
+            assert out["status"] == "completed" and verify(out["evidence"])
         assert set(out["evidence"]["upstream_refs"]) == {r["record_id"] for r in previous}, \
             f"{stage} must list the previous evidence it consumed in upstream_refs"
         previous.append(out["evidence"])
 
 
-def test_recovery_honours_overrides_of_previous_evidence(cases):
+def test_recovery_honours_overrides_of_previous_evidence(cases, prep_synthetic):
     """Prep PASS makes the inbound-defect fee contradicted. A person overriding Prep to FAIL must change that."""
     if "recovery" not in AGENTS or "prep" not in AGENTS:
         pytest.skip("needs both Prep and Recovery in the flow")
@@ -72,6 +88,7 @@ def test_recovery_honours_overrides_of_previous_evidence(cases):
     for stage in ("receiving", "prep", "returns"):
         prior.append(client_for(stage).run(make_input(stage, case, prior), 30)["evidence"])
     prep_id = prior[1]["record_id"]
+    assert prior[1]["status"] == "completed" and prior[1]["decision"]["verdict"] == "PASS"
     base = client_for("recovery").run(make_input("recovery", case, prior), 30)["evidence"]
     override = {"override_id": "OVR-001", "supersedes": {"record_id": prep_id, "override_id": None}, "target": "decision",
                 "actor": "t", "at": "2026-01-01T00:00:00Z", "reason": "label creased", "original_verdict": "PASS",

@@ -4,6 +4,8 @@ from pathlib import Path
 
 import pytest
 
+from agents.prep.tests.integration_support import prep_synthetic
+
 from orchestration.orchestrator import load_flow, run_workflow
 from orchestration.store import MemoryStore
 from shared.utils.schema import errors
@@ -25,7 +27,7 @@ def test_example_validates(path):
 
 
 @pytest.mark.parametrize("folder", ["happy-path", "uncertain-path", "end-to-end"])
-def test_example_cases_with_integrated_returns(folder):
+def test_example_cases_with_integrated_returns(folder, prep_synthetic):
     """Static examples remain valid; real agents require captures rather than CSV judgments."""
     case = json.loads((EXAMPLES / folder / "case.json").read_text())
     flow = load_flow(EXAMPLES.parent / "orchestration/flow.json")
@@ -54,7 +56,7 @@ from agents.receiving.tests.integration_support import receiving_observed
 
 
 @pytest.mark.parametrize("folder", ["happy-path", "uncertain-path", "end-to-end"])
-def test_example_cases_with_registered_receiving(folder, receiving_observed):
+def test_example_cases_with_registered_receiving(folder, receiving_observed, prep_synthetic):
     """Static examples remain valid; missing Returns photos now produce explicit pending evidence."""
     case = json.loads((EXAMPLES / folder / "case.json").read_text())
     flow = load_flow(EXAMPLES.parent / "orchestration/flow.json")

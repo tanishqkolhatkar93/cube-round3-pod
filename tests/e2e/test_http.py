@@ -14,6 +14,8 @@ import httpx
 import pytest
 import uvicorn
 
+from agents.prep.tests.integration_support import prep_synthetic
+
 from orchestration.orchestrator import load_flow, run_workflow
 from tests.conftest import AGENTS, make_input
 
@@ -56,7 +58,7 @@ def http_mode(servers, monkeypatch):
     return servers
 
 
-def test_health_endpoints(http_mode):
+def test_health_endpoints(http_mode, prep_synthetic):
     for stage, url in http_mode.items():
         body = httpx.get(f"{url}/health").json()
         assert body["status"] == "ok" and body["stage"] == stage and body["contract_version"] == "1.0"
@@ -71,14 +73,16 @@ def test_bad_input_is_422_and_wrong_tenant_is_404(http_mode, cases):
     assert httpx.post(f"{url}/run", json=make_input("recovery", case)).status_code == 422, "an agent refuses another stage's input"
 
 
-def test_full_workflow_over_http_matches_in_process(http_mode, cases, monkeypatch):
+def test_full_workflow_over_http_matches_in_process(http_mode, cases, monkeypatch, prep_synthetic):
     case = next(c for c in cases if c["route"] == "fba" and c["returned"])
     over_http = run_workflow(case)
     monkeypatch.setenv("ORCH_MODE", "inproc")
     # Independent workflow runs regenerate upstream timestamps. Compare transports
     # with separate ledgers; replay itself must use byte-identical request content.
     monkeypatch.setenv("RETURNS_STATE_DIR", str(Path(os.environ["RETURNS_STATE_DIR"]) / "inproc-comparison"))
+    prep_synthetic.fresh_state("inproc_comparison")
     in_proc = run_workflow(case)
+    assert sum(prep_synthetic.calls.values()) == 2, "independent executions must use separate Prep ledgers"
     assert (over_http["status"], over_http["final_outcome"]["outcome"]) == (in_proc["status"], in_proc["final_outcome"]["outcome"])
     for workflow in (over_http, in_proc):
         for stage in workflow["stage_results"]:
@@ -105,13 +109,14 @@ def test_dead_agent_is_recorded_not_hidden(monkeypatch, cases):
 from agents.receiving.tests.integration_support import receiving_observed
 
 
-def test_registered_receiving_workflow_over_http_matches_in_process(http_mode, cases, monkeypatch, receiving_observed):
+def test_registered_receiving_workflow_over_http_matches_in_process(http_mode, cases, monkeypatch, receiving_observed, prep_synthetic):
     case = next(c for c in cases if c["route"] == "fba" and c["returned"])
     over_http = run_workflow(case)
     monkeypatch.setenv("ORCH_MODE", "inproc")
     # Independent workflow runs regenerate upstream timestamps. Compare transports
     # with separate ledgers; replay itself must use byte-identical request content.
     monkeypatch.setenv("RETURNS_STATE_DIR", str(Path(os.environ["RETURNS_STATE_DIR"]) / "inproc-comparison"))
+    prep_synthetic.fresh_state("registered_inproc")
     in_proc = run_workflow(case)
     assert (over_http["status"], over_http["final_outcome"]["outcome"]) == (in_proc["status"], in_proc["final_outcome"]["outcome"])
     for workflow in (over_http, in_proc):
