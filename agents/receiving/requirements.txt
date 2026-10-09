@@ -1,0 +1,5 @@
+# Additional Receiving dependencies; install alongside the Pod requirements.
+google-genai>=2.29,<3
+Pillow>=10
+opencv-python>=4.9
+numpy>=1.26

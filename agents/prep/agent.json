@@ -1,10 +1,10 @@
 {
   "stage": "prep",
-  "agent_id": "prep-stub@0",
-  "owner": "@github-handle-of-the-owner",
+  "agent_id": "pod14-prep-manager@1",
+  "owner": "@Karthikk-2003",
   "mode": "inproc",
   "url": "http://localhost:8102",
   "module": "agents.prep.app",
-  "implementation": "organiser-stub",
-  "notes": "Set mode to \"http\" if your agent is not Python or runs as its own service. Change implementation to a short honest description of what you built."
+  "implementation": "organizer-domain-port-python",
+  "notes": "Pod 14 integration. Requires trusted PREP_CONFIG and PREP_STATE_DIR. Source f5f8ad98fa8085a092c796b0681689d52ffc871e. No CSV verdict replay; protect direct service access."
 }

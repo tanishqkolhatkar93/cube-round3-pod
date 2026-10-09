@@ -86,3 +86,21 @@ The prompt requests a structured JSON response containing:
 - `evidence_record_ids`
 
 The implementation does not require a live Gemini API call for its automated test suite; Gemini API behavior is mocked in Recovery-specific tests.
+
+## Current hardened integration
+
+Owner history b2721589, c696b81d, 739d9575 and e5bf03e7 is preserved.
+The original source anchor resolves to 74e200f0c8583df777103472a86b54c4a25f3433.
+Test 2d65e088fb74e8057f3831b9ea3356bab1fea6e7 is merged into this branch.
+The owner's CSV loader, deterministic policy, per-fee position/claim construction,
+batch reconciliation and REST prompt/client are repaired in place. They are not
+replaced by Test's Recovery adapter. Shared registration, upstream validation,
+Prep SQLite ledger and bounded process supervisor are reused with attribution.
+Test's JSON report parser remains for compatibility with integrated callers.
+
+Earlier descriptions of override support now mean exact operator-authorized
+chains only. Hashes alone do not establish origin. The actual agent identity is
+recovery-manager@2, matching integrated registrations. Model versions come from
+provider responses, not a copy of configured selection. Tests use synthetic data
+and mocked network transport; no live-model accuracy or monetary-cost guarantee
+is claimed. Exact final commit/test/CI evidence is recorded in PR #11.

@@ -1,0 +1,2 @@
+# Use the Pod root dependency policy; no separate SDK version list.
+-r ../../requirements.txt

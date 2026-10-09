@@ -1,0 +1,21 @@
+{
+  "units": {
+    "UNIT-9001": {
+      "org_id": "org_demo_alpha", "po_number": "PO-9001", "po_line": 1,
+      "supplier": "Supplier Pod (FIXTURE)", "operator_id": "op_zed",
+      "captured_at": "2026-10-05T09:30:00Z",
+      "sku": "SKU-BOTTLE-750", "product_title": "Steel Water Bottle",
+      "spec_colour": "black", "spec_variant": "750ml",
+      "spec_components": ["bottle", "lid"],
+      "cartons_ordered": 2, "units_per_carton_ordered": 12, "qty_ordered": 24
+    },
+    "UNIT-9002": {
+      "org_id": "org_demo_bravo", "po_number": "PO-9002", "po_line": 1,
+      "supplier": "Supplier Pod (FIXTURE)", "operator_id": "op_zed",
+      "captured_at": "2026-10-05T10:15:00Z",
+      "sku": "SKU-BOTTLE-750", "product_title": "Steel Water Bottle",
+      "spec_colour": "black", "spec_variant": "750ml", "spec_components": null,
+      "cartons_ordered": 1, "units_per_carton_ordered": 12, "qty_ordered": 12
+    }
+  }
+}

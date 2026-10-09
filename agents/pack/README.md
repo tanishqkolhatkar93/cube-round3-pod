@@ -1,44 +1,76 @@
-# agents/pack/  ·  Pack Manager
+# Tanishq's Pack Manager — repaired Round 3 integration
 
-**Owner:** Member 3 (Pack Manager)  (set `owner` in `agent.json` and the handle in `.github/CODEOWNERS`)
+The actual `agents.pack.app.handle` and `/run` use Tanishq's existing check/evidence
+flow and Gemini SDK implementation. Images come from registered request inputs;
+there is no organizer CSV fallback. The standalone Round 2 `/verify` route is
+retired. Historical UI/design work is preserved in Git history, not deployed as a second agent.
 
-> **This folder currently contains an organiser stub** that replays the synthetic Round 2 CSV. It is *not* an agent. Replace it, then replace this README with one that describes what you actually built, how to run it, and its limits.
+## Install and run
 
-| | |
-|---|---|
-| **Reads (inputs)** | A photo of the open box before sealing, and the order lines |
-| **Reads (previous evidence)** | Receiving |
-| **Produces** | items present, quantities correct, nothing extra; seal or stop-and-fix |
-| **Recommended `check_key`s** | `items_present, quantities_correct, no_extra_items` |
-| **`decision.outcome` values** | `seal, stop_and_fix, pending_review` |
+From the Pod root: `python -m pip install -r requirements.txt`. The root policy
+includes google-genai >=2.29,<3 through the existing Receiving dependency list,
+and Pillow. No Streamlit or SQLAlchemy is required for the production entry point.
+`agents/pack/requirements.txt` delegates to this same policy.
 
-Only merchant-fulfilled / 3PL units reach Pack (`route == "mfn"`): Amazon packs FBA boxes. Your record is what Returns and Recovery rely on to say what was actually sent, so the `observed_in_box` evidence must be citable.
+Set `PACK_CONFIG` to protected operator-owned JSON and `PACK_STATE_DIR` to a
+protected local persistent directory; then run `uvicorn agents.pack.app:app --port 8103`.
+Keep service access authenticated by deployment. JSON tenant IDs and hashes do
+not authenticate callers. `/health` is degraded if configuration is invalid.
 
-## Where your code goes
+## Trusted registration
 
-```text
-agents/pack/
-├── app.py          ← expose  handle(agent_input: dict) -> dict  (an Agent Output). Keep `app = make_app(...)` to serve over HTTP.
-├── agent.json      ← stage · agent_id · owner · mode (inproc | http) · url · an honest `implementation` description
-├── PROVENANCE.md   ← your Round 2 repo URL + commit this came from (create it)
-├── README.md       ← this file, rewritten
-└── …               ← your Round 2 code, prompts, rules, fixtures
-```
+Config: `version: 1`, `bindings: [...]`, optional `provider`.
+Each binding requires org_id, subject_id, workflow_id, captured_at (actual physical
+capture timestamp with timezone), files, trusted_agents, refs.order_id, and
+order_lines (SKU -> positive integer count). Optional client_id binds client scope.
+Each file requires ref, relative path, sha256 and kind=image. Paths are relative
+to the config directory. Only protected registrations authorize image ownership;
+requests cannot register their own captures. All registered views must be supplied.
 
-## Integrating, in order
+Provider selection: model, api_key_env, deadline_s (maximum 20). The named key is
+read from the environment; no key is embedded in registration or evidence. There
+is no implicit model fallback. Model/version/usage are reported only when known.
 
-1. Read [`INTEGRATION-GUIDE.md`](../../INTEGRATION-GUIDE.md) and [`EVIDENCE-CONTRACT.md`](../../EVIDENCE-CONTRACT.md); open [`examples/end-to-end/`](../../examples/) for a real Agent Output.
-2. In `handle()`: read `request["subject"]`, `request["inputs"]` (your captures) and `request["previous_evidence"]`; run your agent (**one batched model call per unit**); build the record with `shared.utils.records.build_record()` and wrap it with `build_output()`.
-3. **Fail open.** On a model error return `pending_output(...)`, not an exception. Never invent evidence: if you did not see it, say UNCERTAIN with an `uncertain_reason`.
-4. **Refuse other tenants.** Raise `LookupError` (HTTP 404) for a subject that is not under `subject.org_id`.
-5. Make it idempotent: the same `request_id` must yield the same `record_id`. Use the **latest override** of previous evidence (`context.overrides`).
-6. Run `pytest tests/integration/test_agent_contracts.py`, first on the stub (it passes), then on yours, **with your own fixtures**.
-7. Run the whole system: `make run` and `make test`.
+Allowed images are PNG, JPEG or WEBP, at most 8 files, 10 MB and 20 megapixels each.
+Bytes are decoded/verified and their SHA-256 must match both registration and
+request. Foreign tenant/unit/workflow, conflicting hashes, aliases and untrusted
+upstream evidence are rejected. Prior evidence requires schema, hash, agent,
+workflow, scope and reference validation before inference.
 
-## Run on its own
+## Decisions, failures and replay
 
-```sh
-.venv/bin/uvicorn agents.pack.app:app --port 8103
-curl localhost:8103/health
-```
-Then set `"mode": "http"` in `agent.json` if you want the orchestrator to call it over HTTP.
+One SDK call carries all validated image bytes using Part.from_bytes and correct
+MIME types. Per-image SKU/count facts must be usable, complete and consistent.
+Deterministic items_present, quantities_correct and no_extra_items checks decide
+seal versus stop_and_fix. Model SEAL cannot override a failed check. Gemini
+UNCERTAIN always yields three UNCERTAIN checks and pending_review. A negative
+model advisory that contradicts an otherwise clean comparison also requires review.
+Missing, invalid, partial or contradictory inputs cannot PASS.
+
+Provider failures use the shared pending_output envelope, augmented with the
+registered identity, real source hashes, three uncertain checks and retained
+accounting before resealing. SDK retries and automatic function calling are
+disabled. A killable process bounds inference and cleanup; all calls/attempts and
+available token/cache usage survive failures. Unknown cost is omitted, not guessed.
+Local filesystem I/O is not preemptible; late completed judgments are discarded.
+
+The shared SQLite ledger reserves scoped request IDs durably. Exact replay returns
+the original immutable assessment without another model call. Changed request,
+source availability or registration conflicts (409); reassessment requires a new
+request ID. Interrupted requests require reconciliation. SQLite is single-host
+replay protection, not distributed exactly-once execution.
+
+Direct handle and HTTP use the same boundary. The manifest retains Tanishq as
+owner and uses pack-manager@2, compatible with Test's registered trusted agents.
+
+## Validation and assets
+
+Run `python -B -m pytest agents/pack/tests -o addopts='' -q -p no:cacheprovider`.
+The existing integrated assertions are retained and exercise this entry point.
+SDK tests replace network transport, not Pack decisions. Exact pushed-commit
+results are recorded in PR #10; methodology and limitations: docs/evaluation.md.
+
+Source history preserves the original submission documents and sample images;
+the author's concurrent cleanup removed unused copies. Their Round 2 metrics and
+deployment claims are historical and unverified for Round 3. No live
+model benchmark is claimed; real capture coverage and provider accuracy need validation.

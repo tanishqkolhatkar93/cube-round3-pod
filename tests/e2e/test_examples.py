@@ -1,9 +1,11 @@
+from tests.integration.pack_recovery_support import pack_recovery_synthetic
 """The examples/ folder is documentation participants will copy. It must validate and stay in sync with the code."""
 import json
-import csv
 from pathlib import Path
 
 import pytest
+
+from agents.prep.tests.integration_support import prep_synthetic
 
 from orchestration.orchestrator import load_flow, run_workflow
 from orchestration.store import MemoryStore
@@ -26,44 +28,50 @@ def test_example_validates(path):
 
 
 @pytest.mark.parametrize("folder", ["happy-path", "uncertain-path", "end-to-end"])
-def test_example_cases_still_produce_the_documented_outcome(
-    folder,
-    tmp_path,
-    monkeypatch,
-):
-    """Re-run each example case with the stock stubs: the documented final outcome must still be what you get."""
+def test_example_cases_with_integrated_returns(folder, prep_synthetic, pack_recovery_synthetic):
+    """Static examples remain valid; real agents require captures rather than CSV judgments."""
     case = json.loads((EXAMPLES / folder / "case.json").read_text())
-    if folder == "end-to-end":
-        root = tmp_path / "input"
-        folder_path = root / case["unit_id"] / "recovery"
-        folder_path.mkdir(parents=True)
-        with (folder_path / "fees.csv").open(
-            "w",
-            newline="",
-            encoding="utf-8",
-        ) as output:
-            writer = csv.DictWriter(
-                output,
-                fieldnames=[
-                    "line_id",
-                    "unit_id",
-                    "org_id",
-                    "charge_type",
-                    "amount_usd",
-                ],
-            )
-            writer.writeheader()
-            writer.writerow(
-                {
-                    "line_id": "EXAMPLE-INBOUND-DEFECT",
-                    "unit_id": case["unit_id"],
-                    "org_id": case["org_id"],
-                    "charge_type": "inbound_defect_fee",
-                    "amount_usd": "2.00",
-                }
-            )
-        monkeypatch.setenv("INPUT_DIR", str(root))
     flow = load_flow(EXAMPLES.parent / "orchestration/flow.json")
-    wf = run_workflow(case, flow, MemoryStore())
+    store = MemoryStore()
+    wf = run_workflow(case, flow, store)
     documented = json.loads((EXAMPLES / folder / ("workflow-state.continue.json" if folder == "uncertain-path" else "workflow-state.json")).read_text())
-    assert (wf["status"], wf["final_outcome"]["outcome"]) == (documented["status"], documented["final_outcome"]["outcome"])
+    if case["returned"]:
+        stage = next(s for s in wf["stage_results"] if s["stage"] == "returns")
+        evidence = store.get_evidence(stage["record_id"])
+        assert stage["error"]["code"] == "missing_image"
+        assert evidence["status"] == "pending" and evidence["decision"]["verdict"] == "UNCERTAIN"
+        assert evidence["agent_id"] == "returns-manager@1"
+        expected_outcome = {"happy-path": "INCOMPLETE", "end-to-end": "CLAIM_RECOMMENDED"}[folder]
+        assert (wf["status"], wf["final_outcome"]["outcome"]) == ("FAILED", expected_outcome)
+        assert wf["final_outcome"]["provisional"] is True
+    else:
+        receiving = next(s for s in wf["stage_results"] if s["stage"] == "receiving")
+        assert receiving["error"]["code"] == "upstream_missing"
+        assert receiving["evidence_status"] == "pending" and receiving["verdict"] == "UNCERTAIN"
+        assert (wf["status"], wf["final_outcome"]["outcome"]) == ("FAILED", "INCOMPLETE")
+        assert wf["final_outcome"]["provisional"] is True
+
+
+# Explicit registered Receiving execution, alongside missing-capture coverage.
+from agents.receiving.tests.integration_support import receiving_observed
+
+
+@pytest.mark.parametrize("folder", ["happy-path", "uncertain-path", "end-to-end"])
+def test_example_cases_with_registered_receiving(folder, receiving_observed, prep_synthetic, pack_recovery_synthetic):
+    """Static examples remain valid; missing Returns photos now produce explicit pending evidence."""
+    case = json.loads((EXAMPLES / folder / "case.json").read_text())
+    flow = load_flow(EXAMPLES.parent / "orchestration/flow.json")
+    store = MemoryStore()
+    wf = run_workflow(case, flow, store)
+    documented = json.loads((EXAMPLES / folder / ("workflow-state.continue.json" if folder == "uncertain-path" else "workflow-state.json")).read_text())
+    if case["returned"]:
+        stage = next(s for s in wf["stage_results"] if s["stage"] == "returns")
+        evidence = store.get_evidence(stage["record_id"])
+        assert stage["error"]["code"] == "missing_image"
+        assert evidence["status"] == "pending" and evidence["decision"]["verdict"] == "UNCERTAIN"
+        assert evidence["agent_id"] == "returns-manager@1"
+        expected_outcome = {"happy-path": "INCOMPLETE", "end-to-end": "CLAIM_RECOMMENDED"}[folder]
+        assert (wf["status"], wf["final_outcome"]["outcome"]) == ("FAILED", expected_outcome)
+        assert wf["final_outcome"]["provisional"] is True
+    else:
+        assert (wf["status"], wf["final_outcome"]["outcome"]) == (documented["status"], documented["final_outcome"]["outcome"])

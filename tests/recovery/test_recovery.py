@@ -12,7 +12,22 @@ from agents.recovery import app
 from agents.recovery import gemini_client
 from shared.utils.records import build_record
 from shared.utils.schema import errors
+from agents.prep.common import Rejected
 from tests.conftest import make_input
+
+
+@pytest.fixture(autouse=True)
+def owner_transport(monkeypatch):
+    def invoke(selection,prompt,payload,images,stats):
+        try:
+            batch=app.interpret_charges(items=payload['unresolved'],timeout_seconds=1)
+        except app.GeminiError as exc:
+            stats.update(calls=exc.calls,model='test-model',attempts=[{'model':'test-model','outcome':'provider_unavailable'}] if exc.calls else [])
+            return None,'provider_unavailable'
+        stats.update(calls=batch['calls'],model=batch['model'],version=batch.get('version','fixture-returned-version'),
+            attempts=[{'model':batch['model'],'outcome':'success'}])
+        return {'results':batch['results']},None
+    monkeypatch.setattr(app,'invoke',invoke)
 
 
 def _recovery_input(case, inputs, previous=None, overrides=None):
@@ -63,6 +78,8 @@ def _upstream_record(
             "prompt_version": "test",
             "calls": 0,
         },
+        unit_scope="po_line" if stage=="receiving" else "unit",
+        refs={"po_number":"p","po_line":"1"} if stage=="receiving" else {},
         verdict=verdict,
         needs_human=False,
         payload=payload or {},
@@ -71,7 +88,8 @@ def _upstream_record(
 
 def _patch_fee_lines(monkeypatch, case, lines):
     """Create a real temporary CSV and register its content-addressed input."""
-    root = Path(tempfile.mkdtemp(prefix="recovery-test-"))
+    root = Path(app.os.environ.get("RECOVERY_TEST_ROOT") or tempfile.mkdtemp(prefix="recovery-test-"))
+    monkeypatch.setenv("RECOVERY_TEST_ROOT",str(root))
     monkeypatch.setenv("INPUT_DIR", str(root))
 
     subject_id = case.get("subject_id", case.get("unit_id"))
@@ -83,7 +101,7 @@ def _patch_fee_lines(monkeypatch, case, lines):
         )
 
     folder = root / subject_id / "recovery"
-    folder.mkdir(parents=True)
+    folder.mkdir(parents=True,exist_ok=True)
 
     path = folder / "fees.csv"
 
@@ -99,13 +117,17 @@ def _patch_fee_lines(monkeypatch, case, lines):
         "charge_type",
         "quantity",
         "amount_usd",
-        "posted_date",
+        "posted_date", "workflow_id", "complete", "line_count", "currency", "unit_scope", "po_number", "po_line",
     ]
 
     rows = []
     for line in lines:
         rows.append(
             {
+                "workflow_id":f"WF-{org_id}-{subject_id}","complete":"true","line_count":str(len(lines)),"currency":"USD",
+                "unit_scope":"unit" if line['charge_type'] in ('inbound_defect_fee','fulfilment_fee_weight_tier') else 'po_line',
+                "po_number":"" if line['charge_type'] in ('inbound_defect_fee','fulfilment_fee_weight_tier') else 'p',
+                "po_line":"" if line['charge_type'] in ('inbound_defect_fee','fulfilment_fee_weight_tier') else '1',
                 "line_id": line["line_id"],
                 "report_type": "fee_report",
                 "unit_id": subject_id,
@@ -128,6 +150,13 @@ def _patch_fee_lines(monkeypatch, case, lines):
 
     digest = hashlib.sha256(path.read_bytes()).hexdigest()
 
+    binding={'org_id':org_id,'subject_id':subject_id,'workflow_id':f'WF-{org_id}-{subject_id}',
+        'captured_at':'2026-10-08T00:00:00Z','refs':{'po_number':'p','po_line':'1'},
+        'trusted_agents':{stage:[stage+'-test@1.0.0'] for stage in ('receiving','prep','pack','returns')},
+        'fee_policies':{line['charge_type']:{'version':'synthetic-v1','text':'Synthetic test policy'} for line in lines},
+        'files':[{'ref':f'{subject_id}/recovery/fees.csv','path':f'{subject_id}/recovery/fees.csv','sha256':digest,'kind':'document'}]}
+    config=root/'config.json';config.write_text(json.dumps({'version':1,'bindings':[binding]}))
+    monkeypatch.setenv('RECOVERY_CONFIG',str(config));monkeypatch.setenv('RECOVERY_STATE_DIR',str(root/'state'))
     return [
         {
             "ref": f"{subject_id}/recovery/fees.csv",
@@ -229,10 +258,10 @@ def test_gemini_success_returns_contract_valid_output_and_preserves_valid_refere
     assert out["evidence"]["payload"]["claimable_usd"] == 10.0
     assert out["evidence"]["model"]["calls"] == 1
     assert out["evidence"]["model"]["name"] == "gemini-test-model"
-    assert out["evidence"]["model"]["version"] == "gemini-test-model"
+    assert out["evidence"]["model"]["version"] == "fixture-returned-version"
     assert (
         out["evidence"]["model"]["prompt_version"]
-        == app.PROMPT_VERSION
+        == "recovery-facts-v1"
     )
 
 
@@ -281,7 +310,7 @@ def test_gemini_failure_returns_retryable_pending(monkeypatch, cases):
     assert out["status"] != "completed"
     assert out["verdict"] == "UNCERTAIN"
     assert out["error"]["retryable"] is True
-    assert out["error"]["code"] == "gemini_unavailable"
+    assert out["error"]["code"] == "provider_unavailable"
     assert out["evidence"]["model"]["calls"] == 1
     assert out["evidence"]["model"]["provider"] == "google"
 
@@ -544,12 +573,9 @@ def test_hallucinated_evidence_reference_is_rejected(
         )
     )
 
-    charge = out["evidence"]["payload"]["charges"][0]
-
-    assert charge["position"] == "SILENT"
-    assert charge["evidence_record_ids"] == []
-    assert out["evidence"]["payload"]["claimable_usd"] == 0.0
-    assert out["verdict"] == "UNCERTAIN"
+    assert out['status']=='pending' and out['verdict']=='UNCERTAIN'
+    assert out['evidence']['payload']['charges']==[]
+    assert out['evidence']['payload']['claimable_usd']==0
 
 
 @pytest.mark.parametrize(
@@ -591,13 +617,9 @@ def test_invalid_upstream_evidence_is_ignored(
     )
     calls = _mock_gemini(monkeypatch)
 
-    out = app.handle(_recovery_input(case, inputs, previous=previous))
-    charge = out["evidence"]["payload"]["charges"][0]
-
+    with pytest.raises(Rejected):
+        app.handle(_recovery_input(case, inputs, previous=previous))
     assert calls == []
-    assert charge["position"] == "SILENT"
-    assert charge["evidence_record_ids"] == []
-    assert out["evidence"]["payload"]["claimable_usd"] == 0.0
 
 
 def test_tampered_upstream_evidence_is_ignored(monkeypatch, cases):
@@ -622,13 +644,9 @@ def test_tampered_upstream_evidence_is_ignored(monkeypatch, cases):
     )
     calls = _mock_gemini(monkeypatch)
 
-    out = app.handle(_recovery_input(case, inputs, previous=[record]))
-    charge = out["evidence"]["payload"]["charges"][0]
-
+    with pytest.raises(Rejected):
+        app.handle(_recovery_input(case, inputs, previous=[record]))
     assert calls == []
-    assert charge["position"] == "SILENT"
-    assert charge["evidence_record_ids"] == []
-    assert out["evidence"]["payload"]["claimable_usd"] == 0.0
 
 
 def test_identical_recovery_assessments_reuse_record_id(
@@ -702,7 +720,11 @@ def test_changed_fee_assessment_gets_new_record_id(
             "posted_date": "2026-10-08",
         }],
     )
-    second = app.handle(_recovery_input(case, inputs, previous=previous))
+    request=_recovery_input(case, inputs, previous=previous)
+    with pytest.raises(Rejected,match='request_content_conflict'):
+        app.handle(request)
+    request['request_id']+='-reassessment'
+    second = app.handle(request)
 
     assert (
         first["evidence"]["record_id"]
@@ -805,10 +827,8 @@ def test_malformed_batch_results_never_recommend_claims(
     )
 
     out = app.handle(_recovery_input(case, inputs, previous=previous))
-    charge = out["evidence"]["payload"]["charges"][0]
-
-    assert charge["position"] == "SILENT"
-    assert out["evidence"]["payload"]["claimable_usd"] == 0.0
+    assert out['status']=='pending' and out['verdict']=='UNCERTAIN'
+    assert out['evidence']['payload']['claimable_usd']==0
 
 
 def test_duplicate_batch_result_is_silent_for_affected_line(
@@ -855,7 +875,7 @@ def test_duplicate_batch_result_is_silent_for_affected_line(
 
     out = app.handle(_recovery_input(case, inputs, previous=previous))
 
-    assert out["evidence"]["payload"]["charges"][0]["position"] == "SILENT"
+    assert out["status"] == "pending" and out["verdict"] == "UNCERTAIN"
     assert out["evidence"]["payload"]["claimable_usd"] == 0.0
 
 
@@ -885,6 +905,7 @@ def test_gemini_batch_client_sends_one_request_for_multiple_lines(
             return {
                 "candidates": [
                     {
+                        "finishReason":"STOP",
                         "content": {
                             "parts": [{"text": json.dumps(model_response)}]
                         }
@@ -897,7 +918,11 @@ def test_gemini_batch_client_sends_one_request_for_multiple_lines(
         assert 0 < timeout <= 30.0
         return Response()
 
-    monkeypatch.setattr(gemini_client.httpx, "post", fake_post)
+    class Client:
+        def __init__(self,**kw):self.timeout=kw['timeout']
+        def post(self,url,**kw):return fake_post(url,timeout=self.timeout,**kw)
+        def close(self):pass
+    monkeypatch.setattr(gemini_client.httpx,'Client',Client)
     result = gemini_client.interpret_charges(
         items=[
             {"charge": {"line_id": "HTTP-BATCH-001"}, "evidence": []},
@@ -933,7 +958,11 @@ def test_gemini_error_reports_actual_request_count(
     def failed_post(*args, **kwargs):
         raise httpx.ReadTimeout("timed out")
 
-    monkeypatch.setattr(gemini_client.httpx, "post", failed_post)
+    class Client:
+        def __init__(self,**kw):pass
+        def post(self,*a,**kw):return failed_post(*a,**kw)
+        def close(self):pass
+    monkeypatch.setattr(gemini_client.httpx,'Client',Client)
 
     with pytest.raises(gemini_client.GeminiError) as error:
         gemini_client.interpret_charges(

@@ -30,7 +30,9 @@ def effective(workflow: dict, record: dict) -> tuple[str, bool]:
     if mine:
         v = mine[-1]["new_verdict"]
         return v, v == "UNCERTAIN"
-    return record["decision"]["verdict"], bool(record["decision"].get("needs_human"))
+    verdict = record["decision"]["verdict"]
+    required_review = verdict == "UNCERTAIN" and record["stage"] != "recovery"
+    return verdict, required_review or bool(record["decision"].get("needs_human"))
 
 
 def _latest(workflow: dict, evidence: dict) -> list[tuple[dict, dict]]:

@@ -1,10 +1,10 @@
 {
   "stage": "returns",
-  "agent_id": "returns-stub@0",
-  "owner": "@github-handle-of-the-owner",
+  "agent_id": "returns-manager@1",
+  "owner": "@Karthikk-2003",
   "mode": "inproc",
   "url": "http://localhost:8104",
   "module": "agents.returns.app",
-  "implementation": "organiser-stub",
-  "notes": "Set mode to \"http\" if your agent is not Python or runs as its own service. Change implementation to a short honest description of what you built."
+  "implementation": "pinned-returns-engine-with-durable-replay",
+  "notes": "Requires RETURNS_CONFIG and RETURNS_STATE_DIR. Explicit synthetic or registered existing capture mode; no provider fallback."
 }

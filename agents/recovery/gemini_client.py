@@ -4,9 +4,12 @@ from __future__ import annotations
 
 import json
 import os
+import sys
 from typing import Any
 
 import httpx
+from agents.prep.common import strict_json, canonical
+from agents import bounded_provider
 
 
 GEMINI_API_BASE = "https://generativelanguage.googleapis.com/v1beta/models"
@@ -24,6 +27,8 @@ class GeminiError(RuntimeError):
 
 def _extract_text(data: dict[str, Any]) -> str:
     try:
+        if len(data.get('candidates',[])) != 1 or data['candidates'][0].get('finishReason') != 'STOP' or data.get('promptFeedback',{}).get('blockReason'):
+            raise GeminiError('incomplete_provider_response')
         parts = data["candidates"][0]["content"]["parts"]
         text = "".join(
             part.get("text", "")
@@ -52,8 +57,9 @@ def _extract_json(text: str) -> dict[str, Any]:
         cleaned = "\n".join(lines).strip()
 
     try:
-        value = json.loads(cleaned)
-    except json.JSONDecodeError as exc:
+        value = strict_json(cleaned)
+        canonical(value)
+    except ValueError as exc:
         raise GeminiError("Gemini response was not valid JSON") from exc
 
     if not isinstance(value, dict):
@@ -66,13 +72,14 @@ def interpret_charges(
     *,
     items: list[dict[str, Any]],
     timeout_seconds: float = 30.0,
+    selection=None, key=None, report=None,
 ) -> dict[str, Any]:
     """Interpret eligible fee lines in one Gemini request."""
-    api_key = os.getenv("GEMINI_API_KEY")
+    api_key = key if key is not None else os.getenv("GEMINI_API_KEY")
     if not api_key:
         raise GeminiError("GEMINI_API_KEY is not configured")
 
-    model = os.getenv("GEMINI_MODEL", DEFAULT_MODEL)
+    model = selection["model"] if selection else os.getenv("GEMINI_MODEL", DEFAULT_MODEL)
     prompt = f"""
 You are the Recovery evidence interpreter for a financial recovery workflow.
 
@@ -146,30 +153,38 @@ Fee lines and their evidence:
     }
     url = f"{GEMINI_API_BASE}/{model}:generateContent"
 
+    report = report or (lambda event: None)
+    client = None
+    calls = 0
     try:
-        response = httpx.post(
-            url,
-            headers={
-                "x-goog-api-key": api_key,
-                "Content-Type": "application/json",
-            },
-            json=body,
-            timeout=timeout_seconds,
-        )
+        client = httpx.Client(timeout=timeout_seconds,follow_redirects=False)
+        report({'event':'attempt','model':model});calls=1
+        response = client.post(url,headers={'x-goog-api-key':api_key,'Content-Type':'application/json'},json=body)
         response.raise_for_status()
         data = response.json()
-    except httpx.HTTPError as exc:
-        raise GeminiError(f"Gemini request failed: {exc}", calls=1) from exc
-    except ValueError as exc:
-        raise GeminiError("Gemini returned invalid JSON", calls=1) from exc
-
-    try:
+        version = data.get('modelVersion','unknown')
+        if not isinstance(version,str) or not version or len(version)>200:raise ValueError()
+        report({'event':'accounting','version':version})
+        usage=data.get('usageMetadata',{})
+        if not isinstance(usage,dict):raise ValueError()
+        usage={k:usage[k] for k in ('promptTokenCount','candidatesTokenCount','cachedContentTokenCount','totalTokenCount') if k in usage}
+        if any(type(v) is not int or v<0 for v in usage.values()):raise ValueError()
+        report({'event':'accounting','version':version,'usage':usage})
         result = _extract_json(_extract_text(data))
-    except GeminiError as exc:
-        raise GeminiError(str(exc), calls=1) from exc
-
-    if not isinstance(result.get("results"), list):
-        raise GeminiError("Gemini response results must be an array", calls=1)
+        if not isinstance(result.get('results'),list):raise ValueError()
+    except httpx.TimeoutException:
+        raise GeminiError('provider_timeout',calls=calls) from None
+    except (ValueError,TypeError,KeyError,GeminiError):
+        raise GeminiError('invalid_provider_response',calls=calls) from None
+    except Exception:
+        raise GeminiError('provider_unavailable',calls=calls) from None
+    finally:
+        active_error = sys.exc_info()[0] is not None
+        if client is not None:
+            try:client.close()
+            except Exception:
+                # Keep an earlier provider failure; accounting has already crossed the pipe.
+                if not active_error:raise GeminiError('provider_cleanup_failure',calls=calls) from None
 
     return {
         "results": result["results"],
@@ -178,3 +193,20 @@ Fee lines and their evidence:
         "prompt_version": PROMPT_VERSION,
         "calls": 1,
     }
+
+
+def worker(connection,selection,key,prompt,payload,images):
+    try:
+        batch=interpret_charges(items=payload['unresolved'],timeout_seconds=selection['deadline_s'],
+            selection=selection,key=key,report=connection.send)
+        result={'data':{'results':batch['results']}}
+    except GeminiError as exc:
+        result={'error':str(exc) if str(exc) in ('provider_timeout','provider_cleanup_failure','invalid_provider_response','provider_unavailable') else 'provider_unavailable'}
+    except Exception:
+        result={'error':'provider_unavailable'}
+    try:connection.send({'event':'result',**result})
+    finally:connection.close()
+
+
+def invoke(selection,prompt,payload,images,stats):
+    return bounded_provider.invoke(selection,prompt,payload,images,stats,worker_target=worker)

@@ -77,3 +77,135 @@ A contradiction between documents or data is a **finding**, not a failure. Open 
 ## Your Pod's decisions
 
 _Add entries below._
+
+### Returns input boundary and replay
+
+Returns uses pinned Round 2 domain/validation/inference/rules behind a thin Round 3
+adapter. Explicit operator configuration selects either the unchanged organizer CSV
+or a tenant/client-scoped existing SQLite capture binding. Stored replay requires an
+exact attempt ID; live inspection requires an explicit local Ollama provider. There
+is no latest-attempt selection, source fallback, invented attestation, physical
+timestamp or label-to-observation conversion.
+
+The required physical timestamp in the evidence contract prevents export of existing
+CollectionLineage captures whose timestamp is explicitly ingestion time. These are
+rejected pending a separately approved upstream lineage solution. Synthetic timestamps
+remain explicitly synthetic. This is a production input blocker, not a reason to
+fabricate captures or modify the contract.
+
+A separate local SQLite ledger binds tenant/request ID, complete request fingerprint,
+selected source snapshot and exact output. Durable reservations prevent duplicate
+inference across workers/restarts; abandoned reservations require reconciliation and
+are never automatically retried. Evidence IDs include tenant/request identity. Prior
+evidence and overrides are retained as separate audit interpretations, not rewritten
+automated findings or trusted catalogue evidence.
+
+Missing organizer photos now produce pending/UNCERTAIN evidence instead of historic
+CSV label replay. Existing orchestrator routing/error policy is unchanged, including
+its FAILED/provisional workflow classification for a pending stage. No Prep record is
+fabricated. Configuration, deployment trust assumptions and limitations are documented
+in [the Returns README](../agents/returns/README.md).
+
+
+### Shared orchestration P0 boundaries (2026-10-07)
+
+- The resource API now requires a server-created `orchestration.api.Principal`
+  in ASGI scope under `orchestration.principal`. Trusted authentication middleware
+  must authenticate the caller and set its org and actor. The application never
+  promotes an org/actor header, URL or request body into an identity. Missing
+  context returns 401; cross-org workflow reads/mutations return 404. Creation
+  with a different org or an impersonated override actor returns 403.
+- This is an authorization integration point, not a new identity provider.
+  Deployment must supply authentication middleware and protect direct service
+  access. Unconfigured resource access is deliberately denied. `/health` remains
+  public. The local CLI and unscoped MemoryStore/FileStore backends are privileged
+  operator interfaces, not APIs for untrusted callers. Resource handlers always
+  use `for_org(principal.org_id, actor=principal.actor)`; scoped handles cannot
+  widen their scope. The wire schemas are unchanged.
+- Output validation checks declared input/check membership, supplied upstream
+  record membership, workflow/org/subject scope, hashes and client compatibility.
+  In-process agents receive copies so they cannot mutate the validation context.
+  Agents can still declare inputs resolved through their own trusted registrations
+  (needed by Returns and the starter CSV adapters). The orchestrator checks
+  citation membership and supplied hash consistency; it does not authenticate a
+  dishonest agent's new media assertion or independently reopen its source files.
+- A completed result carrying an error, or PASS contradicting its checks, is
+  rejected. A separate degraded record retains the safe reported failure codes;
+  rejected output is not silently repaired or saved as valid evidence. No schema
+  extension or new status vocabulary is used.
+- Non-Recovery UNCERTAIN requires review even when the producer says otherwise.
+  The evidence remains unchanged; effective workflow review status enforces the
+  policy. Explicit human overrides remain possible. Existing Recovery SILENT
+  behavior is retained. No flow, retry count or provider behavior changes.
+- Overrides validate types, verdict, actor, reason and current target before
+  mutation. Changed upstream decisions invalidate completed consumers through
+  their declared `upstream_refs`, transitively. Old records remain in the evidence
+  history; current stage pointers are cleared and stages become pending. Final
+  outcomes exclude stale pointers immediately. Resume assigns a fresh request ID
+  and re-runs only invalidated/incomplete stages. Replacing a failed attempt also
+  invalidates completed consumers of that attempt. Undeclared dependencies cannot
+  be inferred: producers must declare everything they consume.
+- The existing assertion that an upstream override immediately produces CLEAN
+  despite completed downstream consumers was invalid under these requirements.
+  The workflow regression now requires reassessment before CLEAN and continues
+  to verify preservation of the original evidence and override chain.
+- Stores copy records on ingress/egress, verify evidence hashes on reads/writes,
+  refuse changed content under a record ID (including unhashed agent overrides),
+  constrain file identifiers, and refuse workflow ownership changes. Local file
+  publication uses unique temporary files and atomic replacement under a shared
+  OS file lock. Workflow mutations serialize through that lock, including agent
+  execution, favoring correctness over throughput. This is a single-host/local
+  filesystem design, not distributed storage; lock contention can time out.
+- Store corruption fails closed. Reused evidence IDs with changed agent content
+  become degraded `invalid_output`, never an overwrite. A crash between separate
+  evidence and workflow writes is not a multi-file transaction; reconciliation may
+  still be needed. Host filesystem owners and privileged local code remain trusted.
+
+### Receiving findings and decisions
+
+- D-R1: Stage fixtures against the owning unit's specification. Zain's original
+  UNIT-0012 and UNIT-0039 images remain known PO mismatches; regeneration remains
+  fixture work, not a reason to suppress adverse judgments.
+- D-R2: DEGRADED photos are used and recorded. REJECTED photos cannot support
+  PASS. Mixed usable/rejected required captures leave the inspection pending.
+- D-R3: Contract references use canonical forward slashes. The authoritative
+  registered resolver rejects backslash aliases, traversal, encoded paths,
+  absolute/drive/UNC paths and symlinks/junctions; no basename fallback remains.
+- D-R4: Generated fixture text/watermarks can confuse label extraction. These
+  synthetic images must not be presented as physical receiving evidence.
+- D-R5: Observation caching is content/model/prompt based and uses serialized
+  SQLite publication. Cache hits retain model identity and count zero SDK calls;
+  explicit retries/fallback calls are counted even when they fail.
+- D-R6: Preserve Zain's RCV- plus 12 SHA256 hex characters of request_id on all
+  paths. Scope the separate request ledger by tenant/workflow/subject/request.
+  Globally scoped request IDs remain necessary for the shared immutable store.
+- D-R7: An existing request cannot change because a missing capture arrived.
+  Changed request/spec/capture content conflicts; reconcile with a new attempt ID.
+- D-R8: All applicable checks affect the final verdict, including units_per_carton.
+  Extraction errors cannot silently discard required evidence or produce PASS.
+
+
+### D-POD-2026-10-09 — registered Pack and Recovery integration
+
+- Preserve Test 911abdb and its Returns/orchestration hardening. Receiving e5dcbe4
+  reconciles the two Receiving implementations and latest adversarial fixes;
+  Prep 32d017c is merged, with explicit test fixture composition.
+- Replace the actual Pack/Recovery stub entry points, not disconnected prototypes.
+  Operator-owned registrations bind org, subject, workflow, input bytes and capture
+  time. Requests assert the complete registered input set; no sample-data fallback.
+- Reuse Prep's strict primitives, protected-file reader and RequestStore in the new
+  agents/secure_runtime.py. This creates an explicit dependency on integrated Prep;
+  no existing Prep, Returns, orchestration or shared-contract behavior is changed.
+- Pack model responses contain facts only. Deterministic item/count/extra checks
+  control SEAL. Incomplete/invalid/contradictory input cannot be a completed PASS.
+- Recovery retains PR #8 deterministic rules. Financial claims require exact scope
+  and references, complete registered fee reports and eligible evidence. Unknown
+  policies stay silent. Explicitly complete zero-line reports can prove no fees.
+  A request cannot authorize its own workflow override; registration and chain
+  validation are required. Reassessment needs a new request ID.
+- One batched provider call per unit is isolated in a killable worker. There are no
+  retries. The deadline includes preprocessing budget; late judgments are discarded.
+  Parent-owned attempted-call/model accounting survives timeout and cleanup failure.
+- Protected internal invocation is a deployment requirement, consistent with the
+  other modules. Content hashes and agent-ID allowlists are not digital signatures.
+  Offline tests certify contracts and safety logic, not live model accuracy.

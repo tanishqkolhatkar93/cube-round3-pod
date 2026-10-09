@@ -1,10 +1,12 @@
+from tests.integration.pack_recovery_support import pack_recovery_synthetic
 """End to end: whole workflows, from case to final outcome, persisted and reloaded."""
 import collections
-import csv
 import json
 from pathlib import Path
 
 import pytest
+
+from agents.prep.tests.integration_support import prep_synthetic
 
 from orchestration.orchestrator import apply_override, bundle, discover_inputs, flow_stages, load_flow, resume, run_workflow
 from orchestration.store import FileStore, MemoryStore
@@ -15,30 +17,7 @@ OUTCOMES = {"CLEAN", "CLAIM_RECOMMENDED", "EXCEPTION", "NEEDS_REVIEW", "INCOMPLE
 STATUSES = {"PENDING", "IN_PROGRESS", "COMPLETED", "FAILED", "BLOCKED", "RECOVERY_REQUIRED"}
 
 
-def _provide_inbound_defect_report(case, tmp_path, monkeypatch):
-    root = tmp_path / "input"
-    folder = root / case["unit_id"] / "recovery"
-    folder.mkdir(parents=True)
-    report = folder / "fees.csv"
-    with report.open("w", newline="", encoding="utf-8") as output:
-        writer = csv.DictWriter(
-            output,
-            fieldnames=["line_id", "unit_id", "org_id", "charge_type", "amount_usd"],
-        )
-        writer.writeheader()
-        writer.writerow(
-            {
-                "line_id": "E2E-INBOUND-DEFECT",
-                "unit_id": case["unit_id"],
-                "org_id": case["org_id"],
-                "charge_type": "inbound_defect_fee",
-                "amount_usd": "2.00",
-            }
-        )
-    monkeypatch.setenv("INPUT_DIR", str(root))
-
-
-def test_every_sample_workflow_reaches_a_valid_final_state(cases):
+def test_every_sample_workflow_reaches_a_valid_final_state(cases, pack_recovery_synthetic):
     store, tally = MemoryStore(), collections.Counter()
     for case in cases:
         wf = run_workflow(case, store=store)
@@ -53,7 +32,7 @@ def test_every_sample_workflow_reaches_a_valid_final_state(cases):
     assert sum(tally.values()) == len(cases) == 100
 
 
-def test_audit_trail_explains_every_stage(cases):
+def test_audit_trail_explains_every_stage(cases, pack_recovery_synthetic):
     wf = run_workflow(cases[1])
     stages = {t["stage"] for t in wf["transitions"] if t["stage"]}
     assert {s["stage"] for s in wf["stage_results"]} <= stages
@@ -61,14 +40,9 @@ def test_audit_trail_explains_every_stage(cases):
     assert any(t["event"] == "status_changed" and t["to_status"] == wf["status"] for t in wf["transitions"])
 
 
-def test_claim_names_amount_and_cites_evidence(cases, tmp_path, monkeypatch):
+def test_claim_names_amount_and_cites_evidence(cases, prep_synthetic, pack_recovery_synthetic):
     if "prep" not in flow_stages():
         pytest.skip("Specialist flow has no Prep evidence, so the sample contains no claimable charge")
-    _provide_inbound_defect_report(
-        next(c for c in cases if c["unit_id"] == "UNIT-0014"),
-        tmp_path,
-        monkeypatch,
-    )
     store = MemoryStore()
     for case in cases:
         wf = run_workflow(case, store=store)
@@ -81,7 +55,7 @@ def test_claim_names_amount_and_cites_evidence(cases, tmp_path, monkeypatch):
     raise AssertionError("sample data should contain at least one claim")
 
 
-def test_wrong_tenant_cannot_pull_another_orgs_subject(cases):
+def test_wrong_tenant_cannot_pull_another_orgs_subject(cases, pack_recovery_synthetic):
     case = cases[0]
     other = "org_demo_bravo" if case["org_id"] == "org_demo_alpha" else "org_demo_alpha"
     wf = run_workflow({**case, "org_id": other})
@@ -90,7 +64,7 @@ def test_wrong_tenant_cannot_pull_another_orgs_subject(cases):
     assert wf["status"] == "FAILED"
 
 
-def test_state_and_evidence_survive_a_restart(tmp_path, cases):
+def test_state_and_evidence_survive_a_restart(tmp_path, cases, pack_recovery_synthetic):
     """Workflow state + evidence are persisted; a new process (new store object) can inspect, override and resume."""
     case = next(c for c in cases if c["route"] == "fba")
     wf = run_workflow(case, store=FileStore(tmp_path))
@@ -115,7 +89,7 @@ def test_captures_in_data_input_become_content_addressed_inputs(tmp_path, monkey
     assert discover_inputs("UNIT-0001", "prep") == []
 
 
-def test_matches_expected_outcomes_for_the_organiser_stubs(cases):
+def test_matches_expected_outcomes_for_the_organiser_stubs(cases, pack_recovery_synthetic):
     """Golden file for the STUBS + standard flow. Skipped once you replace a stub or change the flow: write your own."""
     manifests = [json.loads((ROOT / "agents" / s / "agent.json").read_text()) for s in ("receiving", "prep", "pack", "returns", "recovery")]
     if any(m["implementation"] != "organiser-stub" for m in manifests) or "prep" not in flow_stages():
