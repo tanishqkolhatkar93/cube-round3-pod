@@ -91,6 +91,21 @@ def require_principal(request: Request) -> Principal:
     if not isinstance(principal, Principal):
         raise HTTPException(401, "authenticated tenant context required")
     return principal
+    
+# --- Demo principal: OFF by default; set ONLY by the operator via env (server-side
+# trusted configuration, not a client header). Production replaces this with real
+# authentication middleware. Misconfigured -> stays fail-closed.
+_DEMO_PRINCIPAL = os.environ.get("ORCH_DEMO_PRINCIPAL")  # e.g. "org_demo_alpha:op_demo"
+
+@app.middleware("http")
+async def _demo_principal_middleware(request, call_next):
+    if _DEMO_PRINCIPAL and "orchestration.principal" not in request.scope:
+        org, _, actor = _DEMO_PRINCIPAL.partition(":")
+        try:
+            request.scope["orchestration.principal"] = Principal(org, actor or "demo-operator")
+        except ValueError:
+            pass
+    return await call_next(request)
 
 
 def configured_tenant_token(org_id: str) -> str:
