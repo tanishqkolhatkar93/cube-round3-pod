@@ -4,10 +4,11 @@ Keep this current. Organisers read it, and it is evidence of how the Pod actuall
 
 | Date (UTC) | Who | What we did | What we learned / what broke | Next |
 |---|---|---|---|---|
+| 2026-10-09 | Frontend contributor | Added the tenant-authenticated operations console on the integrated five-agent Test branch | Tenant credentials remain server-side; sessions are opaque and process-local; agent registrations stay operator-managed | Pod review of shared API/UI changes |
 | _YYYY-MM-DD_ | _@handle_ | _e.g. Wired Receiving agent into agents/receiving/app.py; contract test passes_ | _e.g. our model returns confidence as a percentage; converted to 0..1_ | _e.g. Prep adapter_ |
 
 
-## 2026-10-09 — Pod integration candidate
+## 2026-10-09 ï¿½ Pod integration candidate
 
 - Rechecked live Test 911abdbd14a345dead627695825e6f6d36113ea3 and all open PRs.
 - Preserved Receiving's complete 74-file candidate in e5dcbe4d15d00ea0f53db4ccd14fb10b98d54768;

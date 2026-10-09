@@ -8,3 +8,4 @@ Pillow>=10
 
 # Receiving and Pack SDK dependencies; one authoritative version list.
 -r agents/receiving/requirements.txt
+python-dotenv>=1.0
