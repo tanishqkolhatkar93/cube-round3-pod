@@ -3,7 +3,7 @@
 The actual `agents.pack.app.handle` and `/run` use Tanishq's existing check/evidence
 flow and Gemini SDK implementation. Images come from registered request inputs;
 there is no organizer CSV fallback. The standalone Round 2 `/verify` route is
-retired. Historical UI/design assets are preserved, not deployed as a second agent.
+retired. Historical UI/design work is preserved in Git history, not deployed as a second agent.
 
 ## Install and run
 
@@ -70,6 +70,7 @@ The existing integrated assertions are retained and exercise this entry point.
 SDK tests replace network transport, not Pack decisions. Exact pushed-commit
 results are recorded in PR #10; methodology and limitations: docs/evaluation.md.
 
-Submission documents, source history and sample images are preserved. Their Round 2
-metrics and deployment claims are historical and unverified for Round 3. No live
+Source history preserves the original submission documents and sample images;
+the author's concurrent cleanup removed unused copies. Their Round 2 metrics and
+deployment claims are historical and unverified for Round 3. No live
 model benchmark is claimed; real capture coverage and provider accuracy need validation.

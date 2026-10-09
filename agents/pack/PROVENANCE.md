@@ -21,16 +21,24 @@ original-source claim is made.
 
 ## Preserved history and cleanup
 
-Original submission documents and four illustrative photographs remain. Unique
-`veriify` design documents moved to `docs/design`; the original Streamlit source
-is preserved as non-runtime text in `docs/round2-ui.py.txt`. Historical claims in
-these assets are not certified Round 3 results. See `docs/evaluation.md`.
+Concurrent author commit `03451c156bfea58b11095aab025265cd1e8f875f`
+added demo fixes and removed unused Round 2 assets. Its history and cleanup are
+preserved. Original submission documents, photographs, UI and design work remain
+retrievable at the verified source commits above, not as competing runtime code.
+Historical claims in those assets are not certified Round 3 results.
+See `docs/evaluation.md`.
 
 Removed duplicate `submissions/.../agent` code, unused SQLAlchemy DAO, two runtime
 DBs, seven generated runtime contracts, empty scripts and nested Round 2 GitHub
 configuration. These remain retrievable at the source commit. The legacy /verify
 endpoint was removed rather than leaving an alternate untrusted decision path.
 The authoritative Round 3 endpoints are /run and /health from agents.pack.app.
+
+The new commit's uncertainty, request-capture and pending-output goals are
+subsumed by the stricter registered-input, shared pending-envelope and deterministic
+checks in this repair. Its unpinned SDK dependency is satisfied through the single
+root dependency policy. Its placeholder source hash and unsupported 95%/cost/latency
+claims were not accepted as provenance or measurements.
 
 Synthetic/offline tests do not establish live model accuracy, production data
 ownership, image coverage or historical evaluation claims.
