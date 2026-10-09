@@ -1,55 +1,76 @@
-# Pack Manager — registered captures and deterministic decisions
+# Tanishq's Pack Manager â€” repaired Round 3 integration
 
-The actual `agents.pack.app.handle` and `/run` execute `adapter.py`; no organizer
-CSV is read in production and no disconnected Round 2 prototype is deployed.
+The actual `agents.pack.app.handle` and `/run` use Tanishq's existing check/evidence
+flow and Gemini SDK implementation. Images come from registered request inputs;
+there is no organizer CSV fallback. The standalone Round 2 `/verify` route is
+retired. Historical UI/design work is preserved in Git history, not deployed as a second agent.
 
-Set `PACK_CONFIG` to an operator-owned JSON registration and `PACK_STATE_DIR` to
-a protected durable directory. Registrations must be outside state. The service
-is an internal orchestrator capability: protect `/run` with deployment authentication.
-JSON organization fields and canonical hashes are not authentication/signatures.
-`/health` is degraded without valid configuration. Direct and HTTP requests use
-the same validation; wrong ownership is 404, invalid inputs 422, reused request
-content conflicts 409. Nothing auto-registers a request's captures.
+## Install and run
 
-## Registration (version 1)
+From the Pod root: `python -m pip install -r requirements.txt`. The root policy
+includes google-genai >=2.29,<3 through the existing Receiving dependency list,
+and Pillow. No Streamlit or SQLAlchemy is required for the production entry point.
+`agents/pack/requirements.txt` delegates to this same policy.
 
-The config has `version: 1`, `bindings: [...]` and optional `provider`.
-Each binding requires `org_id`, `subject_id`, `workflow_id`, a physical
-`captured_at` timestamp with timezone, `files`, `trusted_agents`, and for Pack,
-`order_lines` mapping SKU to positive integer quantity. `refs.order_id` is
-required to bind the capture to an actual order. Each file has `ref`, relative `path`, SHA-256 `sha256`, and
-`kind: image`. Paths are relative to the config directory. Register all required
-views. Requests MUST submit the complete registered set with matching hashes.
-Only PNG/JPEG/WEBP images up to 10 MB and 20 million pixels are accepted (8 files
-maximum). Links, path aliases and cross-owner refs are rejected.
+Set `PACK_CONFIG` to protected operator-owned JSON and `PACK_STATE_DIR` to a
+protected local persistent directory; then run `uvicorn agents.pack.app:app --port 8103`.
+Keep service access authenticated by deployment. JSON tenant IDs and hashes do
+not authenticate callers. `/health` is degraded if configuration is invalid.
 
-`trusted_agents` maps allowed upstream stage names to exact agent IDs. Pack
-accepts Receiving audit context only; it never treats earlier PASS as proof that
-this order was packed. Upstream schema, hash, scope and references are validated.
-Use `client_id` when deployment requires a client boundary.
+## Trusted registration
 
-Provider example (inside config):
-```json
-{"model":"gemini-3-flash-preview","api_key_env":"GEMINI_API_KEY","deadline_s":20}
-```
-The key is read from the environment, never stored in config/evidence. There is
-one batched REST Gemini invocation with inline image bytes, no retries, and a
-killable worker deadline including response and cleanup. Attempt/model accounting
-is received before work completes and retained on failure. Unknown actual model
-versions remain `unknown`; errors never expose raw provider messages.
+Config: `version: 1`, `bindings: [...]`, optional `provider`.
+Each binding requires org_id, subject_id, workflow_id, captured_at (actual physical
+capture timestamp with timezone), files, trusted_agents, refs.order_id, and
+order_lines (SKU -> positive integer count). Optional client_id binds client scope.
+Each file requires ref, relative path, sha256 and kind=image. Paths are relative
+to the config directory. Only protected registrations authorize image ownership;
+requests cannot register their own captures. All registered views must be supplied.
 
-The model reports per-image SKU/count observations, visibility and completeness.
-It cannot grant SEAL. Every view must be usable, complete and consistent. Missing,
-partial, contradictory or malformed observations yield pending/UNCERTAIN.
-The three organizer checks (items present, exact quantities, no extra items)
-are deterministic; any FAIL produces stop_and_fix. Canonical evidence uses a
-scoped SHA-256 identity and durable SQLite replay. Changed request/source/config
-content requires a new request ID; interrupted reservations require reconciliation.
+Provider selection: model, api_key_env, deadline_s (maximum 20). The named key is
+read from the environment; no key is embedded in registration or evidence. There
+is no implicit model fallback. Model/version/usage are reported only when known.
 
-Tests use generated images and explicitly injected observations. They do not
-certify real model accuracy. Deployments must validate capture coverage and live
-provider behavior. Production does not import test fixtures.
+Allowed images are PNG, JPEG or WEBP, at most 8 files, 10 MB and 20 megapixels each.
+Bytes are decoded/verified and their SHA-256 must match both registration and
+request. Foreign tenant/unit/workflow, conflicting hashes, aliases and untrusted
+upstream evidence are rejected. Prior evidence requires schema, hash, agent,
+workflow, scope and reference validation before inference.
 
-The provider worker has a hard cancellation deadline; trusted local filesystem
-I/O is not preemptible. Late completed judgments are suppressed. Use protected
-local storage, not an unbounded remote filesystem.
+## Decisions, failures and replay
+
+One SDK call carries all validated image bytes using Part.from_bytes and correct
+MIME types. Per-image SKU/count facts must be usable, complete and consistent.
+Deterministic items_present, quantities_correct and no_extra_items checks decide
+seal versus stop_and_fix. Model SEAL cannot override a failed check. Gemini
+UNCERTAIN always yields three UNCERTAIN checks and pending_review. A negative
+model advisory that contradicts an otherwise clean comparison also requires review.
+Missing, invalid, partial or contradictory inputs cannot PASS.
+
+Provider failures use the shared pending_output envelope, augmented with the
+registered identity, real source hashes, three uncertain checks and retained
+accounting before resealing. SDK retries and automatic function calling are
+disabled. A killable process bounds inference and cleanup; all calls/attempts and
+available token/cache usage survive failures. Unknown cost is omitted, not guessed.
+Local filesystem I/O is not preemptible; late completed judgments are discarded.
+
+The shared SQLite ledger reserves scoped request IDs durably. Exact replay returns
+the original immutable assessment without another model call. Changed request,
+source availability or registration conflicts (409); reassessment requires a new
+request ID. Interrupted requests require reconciliation. SQLite is single-host
+replay protection, not distributed exactly-once execution.
+
+Direct handle and HTTP use the same boundary. The manifest retains Tanishq as
+owner and uses pack-manager@2, compatible with Test's registered trusted agents.
+
+## Validation and assets
+
+Run `python -B -m pytest agents/pack/tests -o addopts='' -q -p no:cacheprovider`.
+The existing integrated assertions are retained and exercise this entry point.
+SDK tests replace network transport, not Pack decisions. Exact pushed-commit
+results are recorded in PR #10; methodology and limitations: docs/evaluation.md.
+
+Source history preserves the original submission documents and sample images;
+the author's concurrent cleanup removed unused copies. Their Round 2 metrics and
+deployment claims are historical and unverified for Round 3. No live
+model benchmark is claimed; real capture coverage and provider accuracy need validation.

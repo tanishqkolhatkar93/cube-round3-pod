@@ -54,12 +54,12 @@ def worker(connection, selection, key, prompt, payload, images):
             connection.close()
 
 
-def invoke(selection, prompt, payload, images, stats):
+def invoke(selection, prompt, payload, images, stats, *, worker_target=None):
     if not selection or not os.environ.get(selection['api_key_env']):
         return None, 'provider_unconfigured'
     context = multiprocessing.get_context('spawn')
     receiver, sender = context.Pipe(duplex=False)
-    process = context.Process(target=worker, args=(sender, selection, os.environ[selection['api_key_env']],
+    process = context.Process(target=worker_target or worker, args=(sender, selection, os.environ[selection['api_key_env']],
                                                   prompt, payload, images), daemon=True)
     deadline = time.monotonic() + selection['deadline_s']
     code, data = 'provider_timeout', None
@@ -75,6 +75,8 @@ def invoke(selection, prompt, payload, images, stats):
                 stats.setdefault('attempts', []).append({'model': event['model'], 'outcome': 'started'})
             elif event['event'] == 'accounting':
                 stats['version'] = event['version']
+                if 'usage' in event:
+                    stats['usage'] = event['usage']
             elif event['event'] == 'result':
                 code, data = event.get('error'), event.get('data')
                 break

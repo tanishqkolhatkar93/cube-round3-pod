@@ -239,7 +239,8 @@ def run(stage, request, policy_version, execute):
                 model=result['model']
                 stats={**model,'model':model['name'],'attempts':result['evidence']['payload'].get('provider_attempts',[])}
                 return output(stage,request,binding,inputs,rid,fingerprint,[],
-                    {'claimable_usd':0,'charges':[],'discarded_late_result':True},stats,'processing_deadline_exceeded')
+                    {'claimable_usd':0,'charges':[],'discarded_late_result':True,
+                     'provider_usage':result['evidence']['payload'].get('provider_usage',{})},stats,'processing_deadline_exceeded')
             return result
         return RequestStore(state / (stage + '.sqlite3')).execute(scope, request['request_id'], fingerprint, snapshot,
                                                                  produce)

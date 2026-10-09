@@ -11,7 +11,8 @@ import pytest
 from PIL import Image
 from fastapi.testclient import TestClient
 
-from agents.pack import adapter, app
+from agents.pack import app
+adapter = app  # Exercise Tanishq's actual entry point; preserve every assertion.
 from agents.prep.common import Rejected
 from shared.utils.hashing import verify
 from shared.utils.schema import errors
@@ -187,11 +188,14 @@ def test_total_deadline_discards_late_success_and_keeps_accounting(h,monkeypatch
     original=h.invoke
     def slow(*args):
         time.sleep(.08)
-        return original(*args)
+        result = original(*args)
+        args[-1]['usage'] = {'cached_content_token_count': 4}
+        return result
     monkeypatch.setattr(adapter,'invoke',slow)
     out=app.handle(h.request)
     assert out['status']=='pending' and out['error']['code']=='processing_deadline_exceeded'
     assert out['model']['calls']==1 and out['model']['version']=='fixture-version'
+    assert out['evidence']['payload']['provider_usage']=={'cached_content_token_count':4}
     assert app.handle(h.request)==out and h.calls==1
 
 

@@ -12,7 +12,7 @@ from pathlib import Path
 
 import pytest
 from PIL import Image
-from agents.pack import adapter as pack
+from agents.pack import app as pack
 from orchestration import orchestrator
 from shared.utils import sample_data
 
