@@ -1,3 +1,4 @@
+from tests.integration.pack_recovery_support import pack_recovery_synthetic
 """The same flow over real HTTP: proves /health, /run, 404 tenancy, 422 validation, and timeouts work as documented.
 
 Starts all stub agents as uvicorn servers on free ports. If your agent is not Python, this still exercises it as long
@@ -58,7 +59,7 @@ def http_mode(servers, monkeypatch):
     return servers
 
 
-def test_health_endpoints(http_mode, prep_synthetic):
+def test_health_endpoints(http_mode, prep_synthetic, pack_recovery_synthetic):
     for stage, url in http_mode.items():
         body = httpx.get(f"{url}/health").json()
         assert body["status"] == "ok" and body["stage"] == stage and body["contract_version"] == "1.0"
@@ -73,7 +74,7 @@ def test_bad_input_is_422_and_wrong_tenant_is_404(http_mode, cases):
     assert httpx.post(f"{url}/run", json=make_input("recovery", case)).status_code == 422, "an agent refuses another stage's input"
 
 
-def test_full_workflow_over_http_matches_in_process(http_mode, cases, monkeypatch, prep_synthetic):
+def test_full_workflow_over_http_matches_in_process(http_mode, cases, monkeypatch, prep_synthetic, pack_recovery_synthetic):
     case = next(c for c in cases if c["route"] == "fba" and c["returned"])
     over_http = run_workflow(case)
     monkeypatch.setenv("ORCH_MODE", "inproc")
@@ -81,6 +82,7 @@ def test_full_workflow_over_http_matches_in_process(http_mode, cases, monkeypatc
     # with separate ledgers; replay itself must use byte-identical request content.
     monkeypatch.setenv("RETURNS_STATE_DIR", str(Path(os.environ["RETURNS_STATE_DIR"]) / "inproc-comparison"))
     prep_synthetic.fresh_state("inproc_comparison")
+    pack_recovery_synthetic.fresh_state("inproc_comparison")
     in_proc = run_workflow(case)
     assert sum(prep_synthetic.calls.values()) == 2, "independent executions must use separate Prep ledgers"
     assert (over_http["status"], over_http["final_outcome"]["outcome"]) == (in_proc["status"], in_proc["final_outcome"]["outcome"])
@@ -96,7 +98,7 @@ def test_full_workflow_over_http_matches_in_process(http_mode, cases, monkeypatc
                 assert stage["state"] in ("completed", "skipped")
 
 
-def test_dead_agent_is_recorded_not_hidden(monkeypatch, cases):
+def test_dead_agent_is_recorded_not_hidden(monkeypatch, cases, pack_recovery_synthetic):
     monkeypatch.setenv("ORCH_MODE", "http")
     monkeypatch.setenv("RECEIVING_URL", f"http://127.0.0.1:{free_port()}")  # nothing listening
     flow = {**load_flow(), "defaults": {"timeout_s": 1, "retries": 0, "on_uncertain": "continue", "on_error": "continue"}}
@@ -109,7 +111,7 @@ def test_dead_agent_is_recorded_not_hidden(monkeypatch, cases):
 from agents.receiving.tests.integration_support import receiving_observed
 
 
-def test_registered_receiving_workflow_over_http_matches_in_process(http_mode, cases, monkeypatch, receiving_observed, prep_synthetic):
+def test_registered_receiving_workflow_over_http_matches_in_process(http_mode, cases, monkeypatch, receiving_observed, prep_synthetic, pack_recovery_synthetic):
     case = next(c for c in cases if c["route"] == "fba" and c["returned"])
     over_http = run_workflow(case)
     monkeypatch.setenv("ORCH_MODE", "inproc")
@@ -117,6 +119,7 @@ def test_registered_receiving_workflow_over_http_matches_in_process(http_mode, c
     # with separate ledgers; replay itself must use byte-identical request content.
     monkeypatch.setenv("RETURNS_STATE_DIR", str(Path(os.environ["RETURNS_STATE_DIR"]) / "inproc-comparison"))
     prep_synthetic.fresh_state("registered_inproc")
+    pack_recovery_synthetic.fresh_state("inproc_comparison")
     in_proc = run_workflow(case)
     assert (over_http["status"], over_http["final_outcome"]["outcome"]) == (in_proc["status"], in_proc["final_outcome"]["outcome"])
     for workflow in (over_http, in_proc):

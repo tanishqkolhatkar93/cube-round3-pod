@@ -1,3 +1,4 @@
+from tests.integration.pack_recovery_support import pack_recovery_synthetic
 """The examples/ folder is documentation participants will copy. It must validate and stay in sync with the code."""
 import json
 from pathlib import Path
@@ -27,7 +28,7 @@ def test_example_validates(path):
 
 
 @pytest.mark.parametrize("folder", ["happy-path", "uncertain-path", "end-to-end"])
-def test_example_cases_with_integrated_returns(folder, prep_synthetic):
+def test_example_cases_with_integrated_returns(folder, prep_synthetic, pack_recovery_synthetic):
     """Static examples remain valid; real agents require captures rather than CSV judgments."""
     case = json.loads((EXAMPLES / folder / "case.json").read_text())
     flow = load_flow(EXAMPLES.parent / "orchestration/flow.json")
@@ -56,7 +57,7 @@ from agents.receiving.tests.integration_support import receiving_observed
 
 
 @pytest.mark.parametrize("folder", ["happy-path", "uncertain-path", "end-to-end"])
-def test_example_cases_with_registered_receiving(folder, receiving_observed, prep_synthetic):
+def test_example_cases_with_registered_receiving(folder, receiving_observed, prep_synthetic, pack_recovery_synthetic):
     """Static examples remain valid; missing Returns photos now produce explicit pending evidence."""
     case = json.loads((EXAMPLES / folder / "case.json").read_text())
     flow = load_flow(EXAMPLES.parent / "orchestration/flow.json")

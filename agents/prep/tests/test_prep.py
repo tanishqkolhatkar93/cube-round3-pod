@@ -469,7 +469,11 @@ def test_real_orchestration_rollup(h, monkeypatch, mode, expected_status, expect
 
 
 def test_recovery_consumes_real_prep_without_changes(h):
-    from agents.recovery.app import position
+    from agents.recovery.rules import _deterministic_position
+    def position(line, request):
+        evidence = [{**r, "effective_verdict": r["decision"]["verdict"]}
+                    for r in request["previous_evidence"] if r["status"] == "completed"]
+        return _deterministic_position({**line, "amount_usd": 4.25}, evidence)
     out = h.run()
     request = {**h.request, "stage": "recovery", "previous_evidence": [out["evidence"]]}
     assert position({"charge_type": "inbound_defect_fee"}, request)[0] == "CONTRADICTS"
@@ -613,6 +617,14 @@ def test_full_standard_handoff_with_real_returns_and_recovery(h, monkeypatch, tm
     monkeypatch.setenv("RETURNS_STATE_DIR", str(tmp_path / "returns-state"))
     monkeypatch.setenv("ORCH_MODE", "inproc")
     monkeypatch.setattr(app_module, "configured_adapter", h.adapter)
+    from tests.integration.pack_recovery_support import Scenarios
+    Scenarios(tmp_path / "registered-commerce", monkeypatch, [case])
+    from agents.receiving import app as receiving
+    capture_root = tmp_path / "receiving-input"
+    capture_root.mkdir(exist_ok=True)
+    monkeypatch.setenv("INPUT_DIR", str(capture_root))
+    monkeypatch.setattr(receiving, "DATA_INPUT", capture_root)
+    monkeypatch.setenv("RECEIVING_STATE_DIR", str(tmp_path / "receiving-state"))
     store = MemoryStore()
     wf = run_workflow(case, load_flow(root / "orchestration/flow.json"), store)
     records = bundle(wf, store)["evidence"]

@@ -1,3 +1,7 @@
+> The implementation described below was subsequently preserved in commit
+> `e5dcbe4d15d00ea0f53db4ccd14fb10b98d54768` after a fresh 425-pass/1-skip run.
+> The historical worktree notes below predate that commit. Final Pod validation is separate.
+
 # Receiving combined reconciliation
 
 Branch: `integrate/receiving-combined`. HEAD/base/latest remote Test:

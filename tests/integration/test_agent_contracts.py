@@ -1,3 +1,4 @@
+from tests.integration.pack_recovery_support import pack_recovery_synthetic
 """Every agent, on every applicable sample subject, must return a valid Agent Output with a valid Evidence Record.
 
 This runs against whatever agents/<stage>/agent.json points at (stub, in-process, or HTTP).
@@ -17,7 +18,7 @@ PREFIX = {"receiving": "RCV", "prep": "PRP", "pack": "PCK", "returns": "RTN", "r
 
 
 @pytest.mark.parametrize("stage", AGENTS)
-def test_outputs_are_contract_valid(stage, cases, prep_synthetic):
+def test_outputs_are_contract_valid(stage, cases, prep_synthetic, pack_recovery_synthetic):
     client, checked = client_for(stage), 0
     prep_orgs = set()
     for case in (c for c in cases if applies(stage, c)):
@@ -44,7 +45,7 @@ def test_outputs_are_contract_valid(stage, cases, prep_synthetic):
 
 
 @pytest.mark.parametrize("stage", AGENTS)
-def test_other_tenant_gets_nothing(stage, cases, prep_synthetic):
+def test_other_tenant_gets_nothing(stage, cases, prep_synthetic, pack_recovery_synthetic):
     """Tenancy: asking for a subject under the wrong org must be refused, never answered."""
     case = next(c for c in cases if applies(stage, c))
     other = "org_demo_bravo" if case["org_id"] == "org_demo_alpha" else "org_demo_alpha"
@@ -56,7 +57,7 @@ def test_other_tenant_gets_nothing(stage, cases, prep_synthetic):
 
 
 @pytest.mark.parametrize("stage", AGENTS)
-def test_same_request_same_record_id(stage, cases, prep_synthetic):
+def test_same_request_same_record_id(stage, cases, prep_synthetic, pack_recovery_synthetic):
     case = next(c for c in cases if applies(stage, c))
     req = make_input(stage, case)
     client = client_for(stage)
@@ -65,7 +66,7 @@ def test_same_request_same_record_id(stage, cases, prep_synthetic):
         assert sum(prep_synthetic.calls.values()) == 1
 
 
-def test_each_stage_can_consume_the_previous_stages_output(cases, prep_synthetic):
+def test_each_stage_can_consume_the_previous_stages_output(cases, prep_synthetic, pack_recovery_synthetic):
     """The hand-off: feed every stage the evidence the earlier stages produced; it must work and reference it."""
     case = next(c for c in cases if c["route"] == "fba" and c["returned"])
     previous = []
@@ -79,7 +80,7 @@ def test_each_stage_can_consume_the_previous_stages_output(cases, prep_synthetic
         previous.append(out["evidence"])
 
 
-def test_recovery_honours_overrides_of_previous_evidence(cases, prep_synthetic):
+def test_recovery_honours_overrides_of_previous_evidence(cases, prep_synthetic, pack_recovery_synthetic):
     """Prep PASS makes the inbound-defect fee contradicted. A person overriding Prep to FAIL must change that."""
     if "recovery" not in AGENTS or "prep" not in AGENTS:
         pytest.skip("needs both Prep and Recovery in the flow")
@@ -93,7 +94,10 @@ def test_recovery_honours_overrides_of_previous_evidence(cases, prep_synthetic):
     override = {"override_id": "OVR-001", "supersedes": {"record_id": prep_id, "override_id": None}, "target": "decision",
                 "actor": "t", "at": "2026-01-01T00:00:00Z", "reason": "label creased", "original_verdict": "PASS",
                 "previous_verdict": "PASS", "new_verdict": "FAIL"}
-    changed = client_for("recovery").run(make_input("recovery", case, prior, [override]), 30)["evidence"]
+    pack_recovery_synthetic.authorize_override(case["unit_id"], override)
+    reassessment = make_input("recovery", case, prior, [override])
+    reassessment["request_id"] += ":override-assessment"
+    changed = client_for("recovery").run(reassessment, 30)["evidence"]
     pos = lambda ev: {c["charge_type"]: c["position"] for c in ev["payload"]["charges"]}  # noqa: E731
     assert pos(base)["inbound_defect_fee"] == "CONTRADICTS"
     assert pos(changed)["inbound_defect_fee"] == "SUPPORTS"
@@ -116,7 +120,7 @@ def test_agent_level_override_is_append_only(cases):
 from agents.receiving.tests.integration_support import receiving_observed
 
 
-def test_receiving_agent_level_override_is_append_only(cases, receiving_observed):
+def test_receiving_agent_level_override_is_append_only(cases, receiving_observed, pack_recovery_synthetic):
     out = client_for("receiving").run(make_input("receiving", cases[0]), 30)
     rec, target = out["evidence"], out["evidence"]["checks"][0]
     new = add_agent_override(rec, by="op_test", target=target["check_key"], new_verdict="FAIL", reason="operator disagrees")
