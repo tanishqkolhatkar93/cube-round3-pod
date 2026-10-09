@@ -1,10 +1,10 @@
 {
   "stage": "recovery",
-  "agent_id": "recovery-stub@0",
-  "owner": "@github-handle-of-the-owner",
+  "agent_id": "recovery-manager@2",
+  "owner": "@Sri-Satya-Bhamidipati",
   "mode": "inproc",
   "url": "http://localhost:8105",
   "module": "agents.recovery.app",
-  "implementation": "organiser-stub",
-  "notes": "Set mode to \"http\" if your agent is not Python or runs as its own service. Change implementation to a short honest description of what you built."
+  "implementation": "owner-csv-batch-recovery-with-trusted-registration-and-replay",
+  "notes": "Requires RECOVERY_CONFIG and RECOVERY_STATE_DIR. Protected registration, authenticated internal service; no sample replay."
 }

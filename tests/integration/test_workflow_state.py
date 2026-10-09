@@ -1,3 +1,4 @@
+from tests.integration.pack_recovery_support import pack_recovery_synthetic
 """The orchestrator owns workflow state. Status and final outcome are DERIVED from the evidence chain.
 
 Uses fake agents so each rule can be tested in isolation. Copy and adapt for any rule your Pod changes.
@@ -85,7 +86,7 @@ def test_fail_before_recovery_runs_is_recovery_required():
     assert {s["stage"]: s["state"] for s in wf["stage_results"]}["recovery"] == "pending"
 
 
-def test_override_then_resume_completes_a_blocked_workflow():
+def test_override_then_resume_completes_a_blocked_workflow(pack_recovery_synthetic):
     flow = with_policy(on_uncertain="block")
     store = MemoryStore()
     clients = fakes(receiving="UNCERTAIN")
@@ -144,7 +145,7 @@ def test_a_workflow_is_never_completed_or_clean_when_a_required_stage_did_not_co
         assert wf["status"] != "COMPLETED" and wf["final_outcome"]["outcome"] != "CLEAN"
 
 
-def test_resume_retries_a_failed_stage_and_keeps_the_failed_evidence():
+def test_resume_retries_a_failed_stage_and_keeps_the_failed_evidence(pack_recovery_synthetic):
     import tests.helpers as h
     flaky, store = h.Flaky(h.AgentUnavailable("blip"), n=2), MemoryStore()
     clients = fakes(prep=flaky)
@@ -168,8 +169,11 @@ def test_override_references_the_evidence_and_changes_the_outcome_without_rewrit
     assert o["supersedes"] == {"record_id": prep_id, "override_id": None}
     assert (o["original_verdict"], o["previous_verdict"], o["new_verdict"], o["actor"]) == ("FAIL", "FAIL", "PASS", "op_amira")
     assert o["reason"] and o["at"]
-    assert (wf["status"], wf["final_outcome"]["outcome"]) == ("COMPLETED", "CLEAN")
+    # Declared downstream consumers must be reassessed before a clean outcome.
+    assert (wf["status"], wf["final_outcome"]["outcome"]) == ("IN_PROGRESS", "INCOMPLETE")
     assert wf["final_outcome"]["effective_verdicts"]["prep"] == "PASS"
+    wf = resume(wf["workflow_id"], STANDARD, store, fakes())
+    assert (wf["status"], wf["final_outcome"]["outcome"]) == ("COMPLETED", "CLEAN")
     assert json.dumps(store.get_evidence(prep_id), sort_keys=True) == before, "the original evidence is untouched"
     assert wf["stage_results"][1]["verdict"] == "FAIL", "the agent's own verdict is still on record"
     valid(wf)
@@ -182,6 +186,8 @@ def test_overrides_chain_and_latest_wins():
     wf = apply_override(wf["workflow_id"], store, record_id=prep_id, new_verdict="FAIL", actor="b", reason="second look")
     assert wf["overrides"][1]["supersedes"]["override_id"] == "OVR-001" and wf["overrides"][1]["previous_verdict"] == "PASS"
     assert wf["final_outcome"]["effective_verdicts"]["prep"] == "FAIL" and wf["final_outcome"]["outcome"] == "EXCEPTION"
+    assert wf["status"] == "RECOVERY_REQUIRED"
+    assert wf["final_outcome"]["provisional"] is True
 
 
 def test_overriding_a_claim_withdraws_it():
@@ -219,7 +225,7 @@ def test_every_final_outcome_traces_back_to_stored_evidence():
     assert all(errors("evidence", r) == [] for r in b["evidence"].values())
 
 
-def test_rerunning_a_case_does_not_duplicate_or_change_evidence():
+def test_rerunning_a_case_does_not_duplicate_or_change_evidence(pack_recovery_synthetic):
     store = MemoryStore()
     clients = fakes()
     a = run_workflow(CASE, STANDARD, store, clients)
@@ -233,27 +239,31 @@ def states(wf):
     return {s["stage"]: s["state"] for s in wf["stage_results"]}
 
 
-def test_fba_goes_through_prep_not_pack(cases):
+def test_fba_goes_through_prep_not_pack(cases, pack_recovery_synthetic):
     s = states(run_workflow(next(c for c in cases if c["route"] == "fba"), STANDARD))
     assert s["prep"] != "skipped" and s["pack"] == "skipped"
 
 
-def test_mfn_goes_through_pack_not_prep(cases):
+def test_mfn_goes_through_pack_not_prep(cases, pack_recovery_synthetic):
     s = states(run_workflow(next(c for c in cases if c["route"] == "mfn"), STANDARD))
     assert s["pack"] != "skipped" and s["prep"] == "skipped"
 
 
-def test_returns_only_when_a_return_happened(cases):
+def test_returns_only_when_a_return_happened(cases, pack_recovery_synthetic):
     for case in cases[:30]:
         assert (states(run_workflow(case, STANDARD))["returns"] != "skipped") == case["returned"]
 
 
-def test_unrouted_subject_skips_prep_and_pack_but_completes_the_rest(cases):
-    s = states(run_workflow(next(c for c in cases if c["route"] == "unknown"), STANDARD))
-    assert s["prep"] == s["pack"] == "skipped" and s["receiving"] == s["recovery"] == "completed"
+def test_unrouted_subject_skips_prep_and_pack_and_preserves_missing_receiving(cases, pack_recovery_synthetic):
+    wf = run_workflow(next(c for c in cases if c["route"] == "unknown"), STANDARD)
+    s = states(wf)
+    assert s["prep"] == s["pack"] == "skipped" and s["recovery"] == "completed"
+    receiving = next(r for r in wf["stage_results"] if r["stage"] == "receiving")
+    assert s["receiving"] == "error" and receiving["error"]["code"] == "upstream_missing"
+    assert wf["status"] == "FAILED" and wf["final_outcome"]["provisional"]
 
 
-def test_specialist_flow_has_no_prep_and_recovery_stays_silent_on_inbound_fees(cases):
+def test_specialist_flow_has_no_prep_and_recovery_stays_silent_on_inbound_fees(cases, pack_recovery_synthetic):
     flow = load_flow(ROOT / "orchestration/flow.specialist.json")
     assert "prep" not in [s["stage"] for s in flow["steps"]]
     store = MemoryStore()
@@ -262,3 +272,12 @@ def test_specialist_flow_has_no_prep_and_recovery_stays_silent_on_inbound_fees(c
     for charge in rec["payload"]["charges"]:
         if charge["charge_type"] == "inbound_defect_fee":
             assert charge["position"] == "SILENT", "no Prep evidence, so no claim"
+
+
+# Explicit registered Receiving execution, alongside missing-capture coverage.
+from agents.receiving.tests.integration_support import receiving_observed
+
+
+def test_unrouted_subject_skips_prep_and_pack_but_completes_the_rest(cases, receiving_observed, pack_recovery_synthetic):
+    s = states(run_workflow(next(c for c in cases if c["route"] == "unknown"), STANDARD))
+    assert s["prep"] == s["pack"] == "skipped" and s["receiving"] == s["recovery"] == "completed"

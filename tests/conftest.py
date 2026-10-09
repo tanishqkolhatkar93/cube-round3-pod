@@ -20,13 +20,46 @@ def inproc_by_default(monkeypatch):
     monkeypatch.setenv("ORCH_MODE", "inproc")
 
 
+@pytest.fixture(autouse=True)
+def returns_synthetic_configuration(tmp_path, monkeypatch):
+    """Explicit demo source and isolated durable state for each independent test."""
+    import shutil
+    shutil.copyfile(ROOT / "data/sample/returns_sample.csv", tmp_path / "returns_sample.csv")
+    config = tmp_path / "returns-config.json"
+    config.write_text(json.dumps({
+        "mode": "synthetic", "csv": "returns_sample.csv",
+        "tenants": [{"organization_id": "org_demo_alpha", "client_id": None},
+                    {"organization_id": "org_demo_bravo", "client_id": None}],
+    }), encoding="utf-8")
+    monkeypatch.setenv("RETURNS_CONFIG", str(config))
+    monkeypatch.setenv("RETURNS_STATE_DIR", str(tmp_path / "returns-state"))
+
+
 def applies(stage: str, case: dict) -> bool:
     return {"receiving": True, "recovery": True, "prep": case["route"] == "fba",
             "pack": case["route"] == "mfn", "returns": case["returned"]}[stage]
 
 
 def make_input(stage: str, case: dict, previous=None, overrides=None) -> dict:
+    from orchestration.orchestrator import discover_inputs
     wf = f"WF-{case['org_id']}-{case['unit_id']}"
     return {"schema_version": "1.0", "request_id": f"{wf}:{stage}", "workflow_id": wf, "stage": stage,
             "subject": {"org_id": case["org_id"], "subject_id": case["unit_id"], "route": case["route"]},
-            "inputs": [], "previous_evidence": previous or [], "context": {"overrides": overrides or [], "case": case}}
+            "inputs": discover_inputs(case["unit_id"], stage), "previous_evidence": previous or [], "context": {"overrides": overrides or [], "case": case}}
+
+
+@pytest.fixture(autouse=True)
+def receiving_isolated_state(tmp_path, monkeypatch):
+    """Independent test workflows must not share the Receiving replay ledger."""
+    from agents.receiving import app as receiving
+    from agents.receiving.core.config import CFG
+    root = tmp_path / "receiving-input"
+    root.mkdir()
+    monkeypatch.setenv("INPUT_DIR", str(root))
+    monkeypatch.setattr(receiving, "DATA_INPUT", root)
+    monkeypatch.setattr(CFG, "cache_dir", tmp_path / "receiving-cache")
+    monkeypatch.setattr(CFG, "gemini_api_key", "")
+    monkeypatch.setenv("RECEIVING_STATE_DIR", str(tmp_path / "receiving-state"))
+    registry = tmp_path / "receiving-captures.json"
+    registry.write_text('{"captures": []}', encoding="utf-8")
+    monkeypatch.setenv("RECEIVING_CAPTURE_REGISTRY", str(registry))

@@ -1,0 +1,20 @@
+{
+  "repository": "https://github.com/Karthikk-2003/cube26-rtn-0227-karthikk-2003",
+  "revision": "eb555a998d005345c167dacbdcb1dbe035c7c2ad",
+  "source_directory": "submissions/karthikk-2003/agent/returns_manager",
+  "hash_encoding": "UTF-8 with LF line endings",
+  "files": {
+    "__init__.py": "635b678167ced42085e5c071fdafb046f9486e85769fe6e2db1a593ba862969b",
+    "domain.py": "369366fc0b9a4376b96acd2d74ff6c0ffc7cbc59b75deba31155f2e4ceded5fa",
+    "observations.py": "7d836d4cde0bf0b788aa8a32657f3040905efc150aabf2b797a97c96f335d4f6",
+    "ollama.py": "7651beaf1326f90bcb408ae40d32a32b09d9fdbb7697f97456799ffe5fb369c3",
+    "rules.py": "2a7a6bd4ccd6cf81ec320b2a46a3ed7f3089826be6c9c9df020189c15f713e83",
+    "service.py": "221b993e92182eff13e53c8112be1746e3a2ded0ee006adbd9a12d441ef7b6db",
+    "storage.py": "cc1ca33cfacd6514e6e3affbbff6e348a10b6804e364a6b50475738a558f5d2b",
+    "validation.py": "8ffbf9b780eafd9927b78875fac7c816b685383d6b91faff14aa2e5154ac889d",
+    "vision.py": "aeb3b05b43bf97c0b191b6d1c8cd0f63dea5f6f8b8934ef27d3c488a91f450ba",
+    "gemini.py": "eed08bf6732eed31d4550facb353c0f8fb5889622817f1bbd57505060811496a",
+    "groq.py": "dcf59c242c1180b7ea3974782446dbe631fdacc39280544fa268eff33857b6e7",
+    "observation_diagnostics.py": "118611c08ee920428f303e93137ad490819315c498f0543cbc162cf68141724b"
+  }
+}
