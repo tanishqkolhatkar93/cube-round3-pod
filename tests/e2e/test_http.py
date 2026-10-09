@@ -12,6 +12,7 @@ import httpx
 import pytest
 import uvicorn
 
+from orchestration import clients
 from orchestration.orchestrator import load_flow, run_workflow
 from tests.conftest import AGENTS, make_input
 
@@ -81,6 +82,12 @@ def test_full_workflow_over_http_matches_in_process(http_mode, cases, monkeypatc
 def test_dead_agent_is_recorded_not_hidden(monkeypatch, cases):
     monkeypatch.setenv("ORCH_MODE", "http")
     monkeypatch.setenv("RECEIVING_URL", f"http://127.0.0.1:{free_port()}")  # nothing listening
+
+    def connection_refused(url, **kwargs):
+        request = httpx.Request("POST", url)
+        raise httpx.ConnectError("connection refused", request=request)
+
+    monkeypatch.setattr(clients.httpx, "post", connection_refused)
     flow = {**load_flow(), "defaults": {"timeout_s": 1, "retries": 0, "on_uncertain": "continue", "on_error": "continue"}}
     wf = run_workflow(cases[0], flow)
     sr = wf["stage_results"][0]

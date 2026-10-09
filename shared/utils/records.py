@@ -111,7 +111,7 @@ def error_obj(code: str, message: str, *, retryable: bool, stage: str | None = N
 
 
 def pending_output(request: dict, *, code: str, message: str, retryable: bool = True,
-                   agent_id: str | None = None) -> dict:
+                   agent_id: str | None = None, model: dict | None = None) -> dict:
     """Fail-open output: the agent could not judge, but a record still exists and nothing is hidden.
 
     Engineering rule 3: a model error or timeout must never block the line. This is NOT a judgment: it has
@@ -122,7 +122,8 @@ def pending_output(request: dict, *, code: str, message: str, retryable: bool = 
     safe_id = re.sub(r"[^A-Za-z0-9._-]", "-", request["request_id"])
     record = build_record(
         request, agent_id=agent_id, record_id=f"{PREFIX[stage]}-PENDING-{safe_id}", captured_at=utcnow(), checks=[],
-        outcome="pending_review", reason=f"{code}: {message}", model={"name": "none", "version": "0", "calls": 0},
+        outcome="pending_review", reason=f"{code}: {message}",
+        model=model or {"name": "none", "version": "0", "calls": 0},
         status="pending" if retryable else "error", verdict="UNCERTAIN", needs_human=True,
         error=error_obj(code, message, retryable=retryable, stage=stage, agent_id=agent_id))
     return build_output(record, next_step="retry" if retryable else "review", reason=message)

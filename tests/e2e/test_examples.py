@@ -1,5 +1,6 @@
 """The examples/ folder is documentation participants will copy. It must validate and stay in sync with the code."""
 import json
+import csv
 from pathlib import Path
 
 import pytest
@@ -25,9 +26,43 @@ def test_example_validates(path):
 
 
 @pytest.mark.parametrize("folder", ["happy-path", "uncertain-path", "end-to-end"])
-def test_example_cases_still_produce_the_documented_outcome(folder):
+def test_example_cases_still_produce_the_documented_outcome(
+    folder,
+    tmp_path,
+    monkeypatch,
+):
     """Re-run each example case with the stock stubs: the documented final outcome must still be what you get."""
     case = json.loads((EXAMPLES / folder / "case.json").read_text())
+    if folder == "end-to-end":
+        root = tmp_path / "input"
+        folder_path = root / case["unit_id"] / "recovery"
+        folder_path.mkdir(parents=True)
+        with (folder_path / "fees.csv").open(
+            "w",
+            newline="",
+            encoding="utf-8",
+        ) as output:
+            writer = csv.DictWriter(
+                output,
+                fieldnames=[
+                    "line_id",
+                    "unit_id",
+                    "org_id",
+                    "charge_type",
+                    "amount_usd",
+                ],
+            )
+            writer.writeheader()
+            writer.writerow(
+                {
+                    "line_id": "EXAMPLE-INBOUND-DEFECT",
+                    "unit_id": case["unit_id"],
+                    "org_id": case["org_id"],
+                    "charge_type": "inbound_defect_fee",
+                    "amount_usd": "2.00",
+                }
+            )
+        monkeypatch.setenv("INPUT_DIR", str(root))
     flow = load_flow(EXAMPLES.parent / "orchestration/flow.json")
     wf = run_workflow(case, flow, MemoryStore())
     documented = json.loads((EXAMPLES / folder / ("workflow-state.continue.json" if folder == "uncertain-path" else "workflow-state.json")).read_text())

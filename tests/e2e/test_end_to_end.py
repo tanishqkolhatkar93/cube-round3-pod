@@ -1,5 +1,6 @@
 """End to end: whole workflows, from case to final outcome, persisted and reloaded."""
 import collections
+import csv
 import json
 from pathlib import Path
 
@@ -12,6 +13,29 @@ from shared.utils.schema import errors
 ROOT = Path(__file__).resolve().parents[2]
 OUTCOMES = {"CLEAN", "CLAIM_RECOMMENDED", "EXCEPTION", "NEEDS_REVIEW", "INCOMPLETE"}
 STATUSES = {"PENDING", "IN_PROGRESS", "COMPLETED", "FAILED", "BLOCKED", "RECOVERY_REQUIRED"}
+
+
+def _provide_inbound_defect_report(case, tmp_path, monkeypatch):
+    root = tmp_path / "input"
+    folder = root / case["unit_id"] / "recovery"
+    folder.mkdir(parents=True)
+    report = folder / "fees.csv"
+    with report.open("w", newline="", encoding="utf-8") as output:
+        writer = csv.DictWriter(
+            output,
+            fieldnames=["line_id", "unit_id", "org_id", "charge_type", "amount_usd"],
+        )
+        writer.writeheader()
+        writer.writerow(
+            {
+                "line_id": "E2E-INBOUND-DEFECT",
+                "unit_id": case["unit_id"],
+                "org_id": case["org_id"],
+                "charge_type": "inbound_defect_fee",
+                "amount_usd": "2.00",
+            }
+        )
+    monkeypatch.setenv("INPUT_DIR", str(root))
 
 
 def test_every_sample_workflow_reaches_a_valid_final_state(cases):
@@ -37,9 +61,14 @@ def test_audit_trail_explains_every_stage(cases):
     assert any(t["event"] == "status_changed" and t["to_status"] == wf["status"] for t in wf["transitions"])
 
 
-def test_claim_names_amount_and_cites_evidence(cases):
+def test_claim_names_amount_and_cites_evidence(cases, tmp_path, monkeypatch):
     if "prep" not in flow_stages():
         pytest.skip("Specialist flow has no Prep evidence, so the sample contains no claimable charge")
+    _provide_inbound_defect_report(
+        next(c for c in cases if c["unit_id"] == "UNIT-0014"),
+        tmp_path,
+        monkeypatch,
+    )
     store = MemoryStore()
     for case in cases:
         wf = run_workflow(case, store=store)

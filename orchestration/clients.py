@@ -8,6 +8,8 @@ from pathlib import Path
 
 import httpx
 
+from shared.utils.errors import AgentInputError
+
 ROOT = Path(__file__).resolve().parents[1]
 
 
@@ -35,6 +37,8 @@ class InProcClient:
         try:
             return self.handle(request)
         except LookupError as exc:
+            raise AgentRejected(str(exc)) from exc
+        except AgentInputError as exc:
             raise AgentRejected(str(exc)) from exc
 
 

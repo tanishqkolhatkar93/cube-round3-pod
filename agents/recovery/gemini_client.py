@@ -17,6 +17,10 @@ PROMPT_VERSION = "recovery-v1"
 class GeminiError(RuntimeError):
     """Raised when Gemini cannot produce a usable response."""
 
+    def __init__(self, message: str, *, calls: int = 0):
+        super().__init__(message)
+        self.calls = calls
+
 
 def _extract_text(data: dict[str, Any]) -> str:
     try:
@@ -58,104 +62,89 @@ def _extract_json(text: str) -> dict[str, Any]:
     return value
 
 
-def interpret_charge(
+def interpret_charges(
     *,
-    charge: dict[str, Any],
-    evidence: list[dict[str, Any]],
+    items: list[dict[str, Any]],
     timeout_seconds: float = 30.0,
 ) -> dict[str, Any]:
-    """Ask Gemini to interpret whether the fee charge is supported by evidence.
-
-    Gemini only interprets evidence. The Recovery policy remains authoritative
-    about PASS/FAIL/UNCERTAIN and claimability.
-    """
+    """Interpret eligible fee lines in one Gemini request."""
     api_key = os.getenv("GEMINI_API_KEY")
     if not api_key:
         raise GeminiError("GEMINI_API_KEY is not configured")
 
     model = os.getenv("GEMINI_MODEL", DEFAULT_MODEL)
-
     prompt = f"""
 You are the Recovery evidence interpreter for a financial recovery workflow.
 
-Your ONLY task is to interpret whether the specific fee charge below is
-SUPPORTED, CONTRADICTED, or SILENT based ONLY on the supplied evidence.
+For EACH fee line below, interpret whether its charge is SUPPORTED,
+CONTRADICTED, or SILENT based ONLY on evidence supplied for that line.
 
-Do not invent facts.
-Do not use outside knowledge.
-Do not turn missing evidence into a contradiction.
-Do not decide workflow state.
+Do not invent facts, use outside knowledge, decide workflow state, or turn
+missing evidence into a contradiction. SILENT means evidence is absent,
+insufficient, conflicting, or does not establish whether the charge is valid.
+Receiving supplier shortfall does NOT prove a channel-side lost_inbound fee.
+Prefer explicit evidence over inference. Return exactly one result per input
+line, using its line_id unchanged. Do not add, omit, or duplicate line IDs.
 
-Recovery semantics:
-- SUPPORTS means the evidence supports the charge being valid.
-- CONTRADICTS means the evidence contradicts the charge being valid.
-- SILENT means the evidence is absent, insufficient, conflicting, or does not
-  establish whether the charge is valid.
-
-Important:
-- Receiving supplier shortfall does NOT prove a channel-side lost_inbound fee.
-- A $0.00 charge is handled by deterministic Recovery rules outside you.
-- If evidence from different records conflicts, return SILENT.
-- Prefer explicit evidence over inference.
-
-Return ONLY JSON with exactly these fields:
+Return ONLY JSON in this shape:
 {{
-  "position": "SUPPORTS | CONTRADICTS | SILENT",
-  "confidence": 0.0,
-  "reason": "short explanation grounded in the supplied evidence",
-  "evidence_record_ids": ["record-id-1"]
+  "results": [
+    {{
+      "line_id": "fee-line-id",
+      "position": "SUPPORTS | CONTRADICTS | SILENT",
+      "confidence": 0.0,
+      "reason": "short explanation grounded in the supplied evidence",
+      "evidence_record_ids": ["record-id-1"]
+    }}
+  ]
 }}
 
-Charge:
-{json.dumps(charge, ensure_ascii=False, sort_keys=True)}
-
-Previous evidence:
-{json.dumps(evidence, ensure_ascii=False, sort_keys=True)}
+Fee lines and their evidence:
+{json.dumps(items, ensure_ascii=False, sort_keys=True)}
 """.strip()
 
-    url = f"{GEMINI_API_BASE}/{model}:generateContent"
-
-    body = {
-        "contents": [
-            {
-                "parts": [
-                    {"text": prompt},
-                ]
-            }
-        ],
-    "generationConfig": {
-        "temperature": 0,
-        "responseMimeType": "application/json",
-        "responseJsonSchema": {
-            "type": "object",
-            "properties": {
-                "position": {
-                    "type": "string",
-                    "enum": ["SUPPORTS", "CONTRADICTS", "SILENT"]
+    result_schema = {
+        "type": "object",
+        "properties": {
+            "results": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "line_id": {"type": "string"},
+                        "position": {
+                            "type": "string",
+                            "enum": ["SUPPORTS", "CONTRADICTS", "SILENT"],
+                        },
+                        "confidence": {"type": "number"},
+                        "reason": {"type": "string"},
+                        "evidence_record_ids": {
+                            "type": "array",
+                            "items": {"type": "string"},
+                        },
+                    },
+                    "required": [
+                        "line_id",
+                        "position",
+                        "confidence",
+                        "reason",
+                        "evidence_record_ids",
+                    ],
                 },
-                "confidence": {
-                    "type": "number"
-                },
-                "reason": {
-                    "type": "string"
-                },
-                "evidence_record_ids": {
-                    "type": "array",
-                    "items": {
-                        "type": "string"
-                    }
-                }
             },
-            "required": [
-                "position",
-                "confidence",
-                "reason",
-                "evidence_record_ids"
-            ]
         },
-        "maxOutputTokens": 300,
-    },
+        "required": ["results"],
     }
+    body = {
+        "contents": [{"parts": [{"text": prompt}]}],
+        "generationConfig": {
+            "temperature": 0,
+            "responseMimeType": "application/json",
+            "responseJsonSchema": result_schema,
+            "maxOutputTokens": min(8192, max(300, 250 * len(items))),
+        },
+    }
+    url = f"{GEMINI_API_BASE}/{model}:generateContent"
 
     try:
         response = httpx.post(
@@ -170,36 +159,20 @@ Previous evidence:
         response.raise_for_status()
         data = response.json()
     except httpx.HTTPError as exc:
-        raise GeminiError(f"Gemini request failed: {exc}") from exc
+        raise GeminiError(f"Gemini request failed: {exc}", calls=1) from exc
     except ValueError as exc:
-        raise GeminiError("Gemini returned invalid JSON") from exc
-
-    result = _extract_json(_extract_text(data))
-
-    position = result.get("position")
-    if position not in {"SUPPORTS", "CONTRADICTS", "SILENT"}:
-        raise GeminiError(f"Invalid Gemini position: {position!r}")
+        raise GeminiError("Gemini returned invalid JSON", calls=1) from exc
 
     try:
-        confidence = float(result.get("confidence", 0.0))
-    except (TypeError, ValueError):
-        confidence = 0.0
+        result = _extract_json(_extract_text(data))
+    except GeminiError as exc:
+        raise GeminiError(str(exc), calls=1) from exc
 
-    confidence = max(0.0, min(1.0, confidence))
-
-    reason = str(result.get("reason", "")).strip()
-    evidence_record_ids = result.get("evidence_record_ids", [])
-
-    if not isinstance(evidence_record_ids, list):
-        evidence_record_ids = []
+    if not isinstance(result.get("results"), list):
+        raise GeminiError("Gemini response results must be an array", calls=1)
 
     return {
-        "position": position,
-        "confidence": confidence,
-        "reason": reason,
-        "evidence_record_ids": [
-            str(record_id) for record_id in evidence_record_ids
-        ],
+        "results": result["results"],
         "model": model,
         "provider": "google",
         "prompt_version": PROMPT_VERSION,

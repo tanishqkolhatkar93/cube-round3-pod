@@ -12,6 +12,7 @@ from typing import Callable
 
 from fastapi import FastAPI, HTTPException, Request
 
+from .errors import AgentInputError
 from .records import pending_output
 from .schema import errors
 
@@ -35,6 +36,8 @@ def make_app(stage: str, handle: Callable[[dict], dict], version: str = "0.0.0")
             return handle(body)
         except LookupError as exc:  # unknown subject / wrong tenant
             raise HTTPException(status_code=404, detail=str(exc)) from exc
+        except AgentInputError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
         except Exception as exc:  # fail open: always return an output
             return pending_output(body, code="agent_exception", message=str(exc))
 
