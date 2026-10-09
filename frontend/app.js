@@ -1,10 +1,10 @@
-const RECENT_KEY = "cube-operations.recent-workflows";
 const state = {
   page: "overview",
   workflows: [],
   workflow: null,
   bundle: null,
   health: null,
+  session: null,
   workflowId: null,
   storageAvailable: true,
 };
@@ -45,9 +45,16 @@ async function request(path, options = {}) {
   if (!response.ok) {
     const detail = payload && typeof payload === "object" ? payload.detail : payload;
     const message = typeof detail === "string" ? detail : `Request failed (${response.status})`;
+    if (response.status === 401 && (path === "/workflows" || path.startsWith("/workflows/"))) {
+      showLogin("Your tenant session has expired. Sign in again to continue.");
+    }
     throw new ApiError(message, response.status);
   }
   return payload;
+}
+
+function recentKey() {
+  return `cube-operations.recent-workflows:${state.session?.org_id || "anonymous"}`;
 }
 
 function showNotice(message, kind = "info") {
@@ -62,9 +69,32 @@ function setFormMessage(element, message, kind = "") {
   element.className = `form-message${kind ? ` is-${kind}` : ""}`;
 }
 
+function showLogin(message = "") {
+  state.session = null;
+  state.workflows = [];
+  state.workflow = null;
+  state.bundle = null;
+  state.workflowId = null;
+  byId("app-shell").hidden = true;
+  byId("login-screen").hidden = false;
+  setFormMessage(byId("login-message"), message, message ? "error" : "");
+  byId("login-form").elements.token.value = "";
+  byId("login-form").elements.org_id.focus();
+}
+
+function showWorkspace(session) {
+  state.session = session;
+  byId("login-screen").hidden = true;
+  byId("app-shell").hidden = false;
+  byId("session-org").textContent = session.org_id;
+  byId("create-form").elements.org_id.value = session.org_id;
+  state.workflows = [];
+  setPage("overview");
+}
+
 function recentIds() {
   try {
-    const parsed = JSON.parse(localStorage.getItem(RECENT_KEY) || "[]");
+    const parsed = JSON.parse(localStorage.getItem(recentKey()) || "[]");
     return Array.isArray(parsed) ? parsed.filter((id) => typeof id === "string") : [];
   } catch {
     state.storageAvailable = false;
@@ -75,7 +105,7 @@ function recentIds() {
 function rememberWorkflow(workflowId) {
   try {
     const ids = [workflowId, ...recentIds().filter((id) => id !== workflowId)].slice(0, 50);
-    localStorage.setItem(RECENT_KEY, JSON.stringify(ids));
+    localStorage.setItem(recentKey(), JSON.stringify(ids));
     state.storageAvailable = true;
   } catch {
     state.storageAvailable = false;
@@ -84,7 +114,7 @@ function rememberWorkflow(workflowId) {
 
 function dropWorkflow(workflowId) {
   try {
-    localStorage.setItem(RECENT_KEY, JSON.stringify(recentIds().filter((id) => id !== workflowId)));
+    localStorage.setItem(recentKey(), JSON.stringify(recentIds().filter((id) => id !== workflowId)));
   } catch {
     state.storageAvailable = false;
   }
@@ -132,11 +162,12 @@ async function loadHealth() {
   try {
     const health = await request("/health");
     state.health = health;
-    const agents = Object.values(health.agents || {});
-    const allUp = health.status === "ok" && agents.every((agent) => agent.status === "ok");
+    const agents = Object.entries(health.agents || {});
+    const allUp = health.status === "ok" && agents.every(([, agent]) => agent.status === "ok");
     dot.className = `health-dot ${allUp ? "is-healthy" : "is-degraded"}`;
-    healthLabel.textContent = allUp ? "All agents operational" : "System degraded";
-    healthLabel.title = agents.map((agent) => agent.error).filter(Boolean).join("; ");
+    healthLabel.textContent = allUp ? `${agents.length} stage handlers available` : "Agent connections need attention";
+    healthLabel.title = agents.map(([, agent]) => agent.error).filter(Boolean).join("; ");
+    renderAgentGrid();
   } catch (error) {
     state.health = null;
     dot.className = "health-dot is-down";
@@ -146,7 +177,36 @@ async function loadHealth() {
   }
 }
 
+function renderAgentGrid() {
+  const grid = byId("agent-grid");
+  const entries = Object.entries(state.health?.agents || {});
+  byId("agent-count").textContent = `${entries.length} workflow stages`;
+  if (!entries.length) {
+    emptyState(grid, "Agent status unavailable", "The orchestrator did not return stage health.", null, null);
+    return;
+  }
+  const cards = entries.map(([stage, agent]) => {
+    const card = node("article", "agent-card");
+    const head = node("div", "agent-card-title");
+    head.append(node("strong", "", label(stage)));
+    const connected = agent.status === "ok";
+    const inProcess = agent.mode === "inproc";
+    const status = node("span", `agent-card-status${connected ? "" : agent.status === "degraded" ? " is-degraded" : " is-down"}`,
+      inProcess && connected ? "Handler loaded" : label(agent.status));
+    head.append(status);
+    card.append(
+      head,
+      node("p", "agent-card-id", agent.agent_id || agent.version || "Agent identity unavailable"),
+      node("p", "agent-card-mode", inProcess ? "In-process · configuration is server-managed" : "HTTP service"),
+    );
+    if (agent.error) card.title = agent.error;
+    return card;
+  });
+  grid.replaceChildren(...cards);
+}
+
 async function loadRecentWorkflows() {
+  if (!state.session) return;
   const ids = recentIds();
   const results = await Promise.all(ids.map(async (id) => {
     try {
@@ -267,6 +327,26 @@ function renderCheck(check) {
   return row;
 }
 
+function renderCharge(charge) {
+  const item = node("article", "charge-row");
+  const title = node("div", "charge-title");
+  const description = node("div");
+  description.append(
+    node("strong", "", charge.charge_type || charge.line_id || "Charge"),
+    node("span", "sub-cell", charge.line_id || "Report line"),
+  );
+  title.append(description, badge(charge.position || charge.outcome || "UNCERTAIN"));
+  const details = [];
+  if (charge.amount_usd !== undefined && charge.amount_usd !== null) {
+    details.push(new Intl.NumberFormat(undefined, { style: "currency", currency: "USD" }).format(charge.amount_usd));
+  }
+  if (charge.reason) details.push(charge.reason);
+  if (charge.evidence_record_ids?.length) details.push(`Evidence: ${charge.evidence_record_ids.join(", ")}`);
+  item.append(title);
+  if (details.length) item.append(node("p", "charge-detail", details.join(" · ")));
+  return item;
+}
+
 function createOverrideForm(recordId) {
   const details = node("details", "override-details");
   details.append(node("summary", "", "Record a human override"));
@@ -276,9 +356,8 @@ function createOverrideForm(recordId) {
   actor.append(node("span", "", "Actor"));
   const actorInput = node("input");
   actorInput.name = "actor";
-  actorInput.required = true;
-  actorInput.maxLength = 160;
-  actorInput.placeholder = "Reviewer name";
+  actorInput.value = state.session?.actor || "";
+  actorInput.readOnly = true;
   actor.append(actorInput);
   const verdict = node("label", "field");
   verdict.append(node("span", "", "Effective verdict"));
@@ -298,7 +377,7 @@ function createOverrideForm(recordId) {
   reasonInput.maxLength = 500;
   reasonInput.placeholder = "Why does the recorded decision need to change?";
   reason.append(reasonInput);
-  const warning = node("p", "override-warning", "This appends an override to the workflow. The original evidence record is not changed.");
+  const warning = node("p", "override-warning", "This appends an override under the tenant-token operator identity. The original evidence record is not changed.");
   const submit = node("button", "button button-secondary", "Save override");
   submit.type = "submit";
   form.append(actor, verdict, reason, warning, submit);
@@ -345,6 +424,12 @@ function renderStage(stage, evidence, effectiveVerdict) {
     body.append(checks);
   } else {
     body.append(node("p", "stage-reason", "No check-level evidence was recorded for this stage."));
+  }
+  if (Array.isArray(evidence.payload?.charges) && evidence.payload.charges.length) {
+    body.append(node("p", "eyebrow", "RECOVERY CHARGE ASSESSMENT"));
+    const charges = node("div", "charge-list");
+    evidence.payload.charges.forEach((charge) => charges.append(renderCharge(charge)));
+    body.append(charges);
   }
   if (evidence.inputs?.length) {
     const inputTitle = node("p", "eyebrow", "CONTENT-ADDRESSED INPUTS");
@@ -532,7 +617,7 @@ async function submitOverride(event) {
       body: JSON.stringify({
         record_id: recordId,
         new_verdict: values.get("new_verdict"),
-        actor: String(values.get("actor") || "").trim(),
+        actor: state.session.actor,
         reason: String(values.get("reason") || "").trim(),
       }),
     });
@@ -550,7 +635,7 @@ byId("create-form").addEventListener("submit", async (event) => {
   const button = byId("create-submit");
   const values = new FormData(form);
   const body = {
-    org_id: String(values.get("org_id") || "").trim(),
+    org_id: state.session.org_id,
     unit_id: String(values.get("unit_id") || "").trim(),
   };
   if (values.get("route")) body.route = values.get("route");
@@ -561,6 +646,7 @@ byId("create-form").addEventListener("submit", async (event) => {
     const workflow = await request("/workflows", { method: "POST", body: JSON.stringify(body) });
     rememberWorkflow(workflow.workflow_id);
     form.reset();
+    form.elements.org_id.value = state.session.org_id;
     setFormMessage(byId("create-message"), `Workflow ${workflow.workflow_id} was created. Review its current state and evidence.`, "success");
     await loadRecentWorkflows().catch((error) => showNotice(`Workflow created, but recent workflows could not refresh: ${error.message}`, "error"));
     await openWorkflow(workflow.workflow_id);
@@ -596,8 +682,68 @@ byId("refresh-button").addEventListener("click", async () => {
 });
 byId("detail-refresh-button").addEventListener("click", refreshWorkflow);
 
-setPage("overview");
-Promise.all([loadHealth(), loadRecentWorkflows().catch((error) => {
-  byId("overview-workflows").replaceChildren(node("p", "detail-error", `Could not load recent workflows: ${error.message}`));
-  byId("all-workflows").replaceChildren(node("p", "detail-error", `Could not load recent workflows: ${error.message}`));
-})]);
+byId("login-form").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const values = new FormData(form);
+  const button = byId("login-submit");
+  button.disabled = true;
+  setFormMessage(byId("login-message"), "Verifying organization access…");
+  try {
+    await request("/auth/session", {
+      method: "POST",
+      body: JSON.stringify({
+        org_id: values.get("org_id"),
+        token: values.get("token"),
+      }),
+    });
+    form.elements.token.value = "";
+    const session = await request("/auth/session");
+    if (!session.authenticated) throw new Error("The tenant session could not be established.");
+    showWorkspace(session);
+    setFormMessage(byId("login-message"), "");
+    await Promise.all([
+      loadHealth(),
+      loadRecentWorkflows().catch((error) => showNotice(`Could not load recent workflows: ${error.message}`, "error")),
+    ]);
+  } catch (error) {
+    form.elements.token.value = "";
+    setFormMessage(byId("login-message"), error.message, "error");
+    form.elements.token.focus();
+  } finally {
+    button.disabled = false;
+  }
+});
+
+byId("logout-button").addEventListener("click", async () => {
+  try {
+    await request("/auth/session", { method: "DELETE" });
+    showNotice("");
+    showLogin();
+  } catch (error) {
+    showNotice(`Could not sign out cleanly: ${error.message}`, "error");
+  }
+});
+
+async function initialize() {
+  try {
+    const session = await request("/auth/session");
+    if (!session.authenticated) {
+      showLogin();
+      return;
+    }
+    showWorkspace(session);
+    await Promise.all([
+      loadHealth(),
+      loadRecentWorkflows().catch((error) => showNotice(`Could not load recent workflows: ${error.message}`, "error")),
+    ]);
+  } catch (error) {
+    if (error instanceof ApiError && error.status === 401) {
+      showLogin();
+      return;
+    }
+    showLogin(`Could not check the current session: ${error.message}`);
+  }
+}
+
+initialize();

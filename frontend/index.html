@@ -9,7 +9,36 @@
     <script src="/app.js" defer></script>
   </head>
   <body>
-    <div class="app-shell">
+    <section class="login-screen" id="login-screen" aria-labelledby="login-title">
+      <div class="login-card">
+        <a class="brand login-brand" href="/" aria-label="CUBE Operations home">
+          <span class="brand-mark" aria-hidden="true">C</span>
+          <span><strong>CUBE</strong><small>COMMERCE OPERATIONS</small></span>
+        </a>
+        <p class="eyebrow">CUBE ROUND 3 / POD</p>
+        <h1 id="login-title">Sign in to operations</h1>
+        <p class="login-intro">Use your organization’s server-configured access token to open its workflow workspace.</p>
+        <form id="login-form" class="form-stack">
+          <label class="field">
+            <span>Organization</span>
+            <select name="org_id" required>
+              <option value="org_demo_alpha">org_demo_alpha</option>
+              <option value="org_demo_bravo">org_demo_bravo</option>
+            </select>
+          </label>
+          <label class="field">
+            <span>Organization access token</span>
+            <input name="token" type="password" autocomplete="current-password" required>
+            <small>The token is checked by the orchestrator and is not saved in browser storage.</small>
+          </label>
+          <button class="button button-primary button-full" type="submit" id="login-submit">Sign in</button>
+          <p class="form-message" id="login-message" role="status" aria-live="polite"></p>
+        </form>
+        <p class="login-footnote">Local/demo sign-in · session expires after eight hours · use HTTPS outside localhost.</p>
+      </div>
+    </section>
+
+    <div class="app-shell" id="app-shell" hidden>
       <aside class="sidebar" aria-label="Primary navigation">
         <a class="brand" href="/" aria-label="CUBE Operations home">
           <span class="brand-mark" aria-hidden="true">C</span>
@@ -32,7 +61,7 @@
             <span class="health-dot" id="health-dot"></span>
             <span id="health-label">Connecting to orchestrator</span>
           </div>
-          <p class="sidebar-footnote">Protected workflow access requires host-managed sign-in. No login form or token storage is included.</p>
+          <p class="sidebar-footnote">Tenant-scoped workspace. Agent registrations remain server-managed.</p>
         </div>
       </aside>
 
@@ -40,8 +69,10 @@
         <header class="topbar">
           <div class="breadcrumbs"><span>Workspace</span><span aria-hidden="true">/</span><strong id="breadcrumb-current">Overview</strong></div>
           <div class="topbar-actions">
+            <span class="session-org" id="session-org"></span>
             <span class="environment-label"><span class="environment-dot"></span>ORCHESTRATOR</span>
             <button class="button button-quiet button-small" type="button" id="refresh-button">Refresh</button>
+            <button class="button button-quiet button-small" type="button" id="logout-button">Sign out</button>
           </div>
         </header>
 
@@ -81,6 +112,19 @@
               </article>
             </section>
 
+            <section class="agent-overview" aria-labelledby="agent-overview-title">
+              <div class="panel-heading panel-heading-row">
+                <div>
+                  <p class="eyebrow">INTEGRATED PIPELINE</p>
+                  <h2 id="agent-overview-title">Five agent managers</h2>
+                </div>
+                <span class="agent-count" id="agent-count">Checking</span>
+              </div>
+              <div class="agent-grid" id="agent-grid" aria-live="polite">
+                <div class="loading-state"><span class="spinner" aria-hidden="true"></span>Checking agent connections…</div>
+              </div>
+            </section>
+
             <div class="content-grid">
               <section class="panel create-panel">
                 <div class="panel-heading">
@@ -94,8 +138,8 @@
                 <form id="create-form" class="form-stack">
                   <label class="field">
                     <span>Organization ID</span>
-                    <input name="org_id" type="text" autocomplete="organization" placeholder="org_demo_alpha" required maxlength="120">
-                    <small>Must match the organization in the trusted tenant scope.</small>
+                    <input name="org_id" type="text" autocomplete="organization" readonly required maxlength="120">
+                    <small>Selected by the authenticated tenant session.</small>
                   </label>
                   <label class="field">
                     <span>Unit or subject ID</span>
@@ -120,7 +164,7 @@
                       </select>
                     </label>
                   </div>
-                  <p class="form-hint">Submitting starts the workflow immediately. Auto-detection uses sample data. Protected actions require trusted host authentication middleware.</p>
+                  <p class="form-hint">Submitting starts the workflow immediately. Route and return status default to sample data; each agent uses its separately registered trusted inputs.</p>
                   <button class="button button-primary button-full" type="submit" id="create-submit">
                     Start workflow <span aria-hidden="true">→</span>
                   </button>
@@ -166,7 +210,6 @@
                 </label>
                 <button class="button button-primary" type="submit">Open workflow</button>
               </form>
-              <p class="form-hint">Workflow access requires trusted server-side authentication. An organization ID or actor in the request body does not authenticate a caller.</p>
               <p class="form-message" id="lookup-message" role="status" aria-live="polite"></p>
             </section>
             <section class="panel list-panel">

@@ -161,6 +161,28 @@ in [the Returns README](../agents/returns/README.md).
   evidence and workflow writes is not a multi-file transaction; reconciliation may
   still be needed. Host filesystem owners and privileged local code remain trusted.
 
+### D-FE-01 Â· Same-origin console uses tenant-scoped server sessions
+
+- Date / Owner: 2026-10-09 / Frontend integration
+- Context: the integrated workflow API requires a trusted `Principal`, but the
+  repository did not provide browser sign-in middleware.
+- Options considered: expose workflow routes without authentication; trust a
+  browser-supplied tenant header; or validate the existing per-tenant server
+  environment tokens.
+- Decision: keep workflow authorization fail-closed and add same-origin sign-in
+  using `ORG_ALPHA_TOKEN` / `ORG_BRAVO_TOKEN`. The server validates the token and
+  issues an eight-hour random, opaque HttpOnly, SameSite=Strict session cookie.
+  The original tenant token is never returned to the browser. The actor is
+  explicitly the shared tenant-token operator, not a verified individual.
+- Why: the console needs tenant-scoped API access without weakening the
+  orchestration/storage isolation boundary or putting credentials in browser
+  storage.
+- Consequences: configure unique tenant secrets and use HTTPS outside localhost.
+  Sessions are process-local: restarts revoke them and multi-worker deployments
+  require shared session storage.
+  Per-agent registrations, source files, state directories and model credentials
+  remain trusted server configuration; the UI does not provision them.
+
 ### Receiving findings and decisions
 
 - D-R1: Stage fixtures against the owning unit's specification. Zain's original
@@ -185,7 +207,7 @@ in [the Returns README](../agents/returns/README.md).
   Extraction errors cannot silently discard required evidence or produce PASS.
 
 
-### D-POD-2026-10-09 — registered Pack and Recovery integration
+### D-POD-2026-10-09 ï¿½ registered Pack and Recovery integration
 
 - Preserve Test 911abdb and its Returns/orchestration hardening. Receiving e5dcbe4
   reconciles the two Receiving implementations and latest adversarial fixes;
