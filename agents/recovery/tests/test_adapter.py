@@ -7,7 +7,8 @@ import pytest
 from fastapi.testclient import TestClient
 from agents.pack.tests.test_adapter import Harness
 from agents.prep.common import Rejected
-from agents.recovery import app, adapter
+from agents.recovery import app
+adapter = app
 from shared.utils.records import build_record, check
 from shared.utils.hashing import verify, seal
 from shared.utils.schema import errors
@@ -130,7 +131,7 @@ def unresolved(h):
     h.report['line_count']=2
     h.binding['fee_policies']={'registered_fee':{'version':'test-v1','text':'Explicit synthetic eligibility policy'}}
     h.update()
-    h.response={'charges':[{'line_id':name,'position':'CONTRADICTS','confidence':.9,'reason':'Evidence under registered policy',
+    h.response={'results':[{'line_id':name,'position':'CONTRADICTS','confidence':.9,'reason':'Evidence under registered policy',
                             'evidence_record_ids':['PRP-a']} for name in ('a','b')]}
 
 
@@ -143,11 +144,11 @@ def test_two_unresolved_fees_use_one_batched_call(h):
 
 @pytest.mark.parametrize('change',['foreign_ref','missing_ref','missing_line','duplicate','invalid_position','nan_confidence','extra_field'])
 def test_strict_batch_response_cannot_fabricate_claims(h,change):
-    unresolved(h);c=h.response['charges'][0]
+    unresolved(h);c=h.response['results'][0]
     if change=='foreign_ref':c['evidence_record_ids']=['foreign']
     elif change=='missing_ref':c['evidence_record_ids']=[]
-    elif change=='missing_line':h.response['charges'].pop()
-    elif change=='duplicate':h.response['charges'][1]['line_id']='a'
+    elif change=='missing_line':h.response['results'].pop()
+    elif change=='duplicate':h.response['results'][1]['line_id']='a'
     elif change=='invalid_position':c['position']='PASS'
     elif change=='nan_confidence':c['confidence']=float('nan')
     elif change=='extra_field':h.response['verdict']='claim'

@@ -3,7 +3,7 @@
 The actual `agents.recovery.app.handle` and `/run` use the same secure boundary.
 There is no sample fee CSV fallback. Set `RECOVERY_CONFIG` and
 `RECOVERY_STATE_DIR` as described in the Pack registration documentation, with
-`kind: document` entries pointing to JSON reports. Configuration/state/source
+`kind: document` entries pointing to CSV or JSON reports. Configuration/state/source
 storage and internal service access must be protected by the deployment.
 
 ## Report input contract
@@ -34,14 +34,14 @@ The PR #8 deterministic rules are retained: zero-dollar fees are nonclaimable;
 Prep PASS contradicts an inbound-defect fee, Prep FAIL supports it; Receiving
 shortfalls do not prove channel lost-inbound claims. Scope still must match.
 Weight-tier inference requires finite positive `weight_g`, `length_cm`,
-`width_cm`, `height_cm` values from eligible Prep evidence. Invalid/absent
+`width_cm`, `height_cm` values from eligible Prep evidence. The owner's equivalent millimetre fields are also accepted; mixed unit sets must be complete and agree. Invalid/absent
 measurements never reach Gemini. These units define the adapter's accepted
 measurement format; no tariff thresholds are invented.
 
 Other fees require an operator-owned `fee_policies` mapping of charge type to
 `{version, text}`. Without a registered policy or eligible evidence they remain
 SILENT. All unresolved eligible lines are sent in ONE batched Gemini call using
-the common killable transport (at most 20 seconds, no retries). Every response
+the owner REST interpreter inside the common killable transport (at most 20 seconds, no retries). Every response
 must cover exactly those lines and cite eligible records. Invalid responses or
 provider/cleanup failures produce pending evidence with zero claimable amount
 and retained call/model/attempt accounting. Deterministic positions cannot be
@@ -54,3 +54,26 @@ validation. Unit/integration tests use explicit synthetic reports and observatio
 
 The processing budget suppresses late completed judgments and hard-cancels the
 provider worker. Trusted local filesystem I/O itself is not preemptible.
+
+## Owner CSV compatibility
+
+The owner CSV ingestion, deterministic rules, claim aggregation and batched
+interpreter remain the production implementation in app.py/gemini_client.py.
+The former Test adapter has been removed; reports.py retains its typed JSON
+parser for already-integrated workflows. rules.py only re-exports owner rules.
+
+CSV reports require line_id, unit_id, org_id, charge_type, amount_usd,
+workflow_id, complete, line_count, currency and unit_scope columns. Each row
+must assert complete=true and the exact total row count; the operator must
+register the complete source bytes, not a caller-selected subset. Scope join
+keys use order_id or po_number/po_line columns. Headers must be unique.
+A header-only CSV cannot prove zero fees; use the explicit registered JSON
+zero-line report contract when no fees exist. Files are limited by the shared
+resolver; at most 200 fees are accepted across the complete assessment.
+
+Model metadata records configured selection and actual returned version
+separately. Available token/cache usage survives cleanup failures; unknown
+monetary costs are omitted. One call is allowed, with no automatic retries.
+Production never imports offline fixtures. Service authentication, policy
+correctness, source completeness and persistent local storage remain operator
+responsibilities. The ledger is single-host, not distributed exactly-once.

@@ -1,10 +1,10 @@
 {
   "stage": "recovery",
   "agent_id": "recovery-manager@2",
-  "owner": "@github-handle-of-the-owner",
+  "owner": "@Sri-Satya-Bhamidipati",
   "mode": "inproc",
   "url": "http://localhost:8105",
   "module": "agents.recovery.app",
-  "implementation": "registered-input-deterministic-adapter",
+  "implementation": "owner-csv-batch-recovery-with-trusted-registration-and-replay",
   "notes": "Requires RECOVERY_CONFIG and RECOVERY_STATE_DIR. Protected registration, authenticated internal service; no sample replay."
 }

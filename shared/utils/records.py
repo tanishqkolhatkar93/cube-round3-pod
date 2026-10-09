@@ -78,7 +78,7 @@ def build_record(request: dict, *, agent_id: str, record_id: str, captured_at: s
         "decision": {"verdict": verdict, "outcome": outcome, "confidence": confidence, "reason": reason,
                      "needs_human": verdict == "UNCERTAIN" if needs_human is None else needs_human},
         "payload": payload or {},
-        "upstream_refs": upstream_refs or [r["record_id"] for r in request.get("previous_evidence", [])],
+        "upstream_refs": upstream_refs if upstream_refs is not None else [r["record_id"] for r in request.get("previous_evidence", [])],
         "overrides": [],
         "error": error,
     }
