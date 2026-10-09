@@ -4,7 +4,7 @@ import multiprocessing
 import os
 import time
 from urllib.parse import quote
-from agents.prep.common import strict_json
+from agents.prep.common import strict_json, canonical
 
 
 def worker(connection, selection, key, prompt, payload, images):
@@ -33,7 +33,9 @@ def worker(connection, selection, key, prompt, payload, images):
         raw = ''.join(p.get('text', '') for p in candidates[0].get('content', {}).get('parts', []))
         if not raw or len(raw) > 100_000:
             raise ValueError()
-        result = {'data': strict_json(raw)}
+        data = strict_json(raw)
+        canonical(data)  # JSON exponent overflow must not escape as infinity.
+        result = {'data': data}
     except httpx.TimeoutException:
         result = {'error': 'provider_timeout'}
     except (ValueError, TypeError, KeyError):

@@ -74,7 +74,7 @@ def execute(request, binding, evidence, images, inputs, failure, provider, rid, 
                   check('no_extra_items', 'PASS' if observed.keys() <= expected.keys() else 'FAIL', None,
                         expected=[], observed=sorted(observed.keys()-expected.keys()), evidence_refs=refs)]
     return runtime.output('pack', request, binding, inputs, rid, fingerprint, checks,
-        {'order_lines': expected, 'observations': observations, 'policy': POLICY}, stats, code,
+        {'order_lines': expected, 'observations': observations if not code else None, 'policy': POLICY}, stats, code,
         outcome='seal' if rollup(checks)=='PASS' else 'stop_and_fix')
 
 

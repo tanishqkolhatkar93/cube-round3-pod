@@ -11,7 +11,7 @@ class Channel:
     def close(self):pass
 
 
-@pytest.mark.parametrize('failure',[None,'call','cleanup','both','malformed'])
+@pytest.mark.parametrize('failure',[None,'call','cleanup','both','malformed','overflow'])
 def test_worker_records_work_before_failure_and_sanitizes(monkeypatch,failure):
     channel=Channel()
     class Client:
@@ -22,7 +22,7 @@ def test_worker_records_work_before_failure_and_sanitizes(monkeypatch,failure):
             class Response:
                 def raise_for_status(self):pass
                 def json(self):return {'modelVersion':'actual-model-123','candidates':[{'finishReason':'STOP',
-                    'content':{'parts':[{'text':'not json' if failure=='malformed' else '{"images":[]}'}]}}]}
+                    'content':{'parts':[{'text':'not json' if failure=='malformed' else '{"value":1e999}' if failure=='overflow' else '{"images":[]}'}]}}]}
             return Response()
         def close(self):
             if failure in ('cleanup','both'):raise RuntimeError('SECRET cleanup diagnostic')
@@ -33,7 +33,7 @@ def test_worker_records_work_before_failure_and_sanitizes(monkeypatch,failure):
     if failure not in ('call','both'):
         assert channel.events[1]=={'event':'accounting','version':'actual-model-123'}
     result=channel.events[-1]
-    expected={'call':'provider_unavailable','both':'provider_unavailable','cleanup':'provider_cleanup_failure','malformed':'invalid_provider_response'}
+    expected={'call':'provider_unavailable','both':'provider_unavailable','cleanup':'provider_cleanup_failure','malformed':'invalid_provider_response','overflow':'invalid_provider_response'}
     assert result.get('error')==expected.get(failure)
     assert 'SECRET' not in str(channel.events)
 

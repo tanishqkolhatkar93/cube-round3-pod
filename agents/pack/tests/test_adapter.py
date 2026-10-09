@@ -212,3 +212,12 @@ def test_capture_arrival_after_pending_conflicts(h):
     (h.root/'front.png').write_bytes(raw)
     with pytest.raises(Rejected,match='request_content_conflict'):app.handle(h.request)
     assert h.calls==0
+
+
+def test_invalid_nonfinite_model_payload_still_produces_truthful_pending(h):
+    h.response['unexpected']=float('inf')
+    out=app.handle(h.request)
+    assert out['status']=='pending' and out['error']['code']=='invalid_provider_response'
+    assert out['model']['calls']==1 and out['model']['version']=='fixture-version'
+    assert out['evidence']['payload']['observations'] is None
+    assert app.handle(h.request)==out
