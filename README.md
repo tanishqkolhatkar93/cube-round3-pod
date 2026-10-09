@@ -54,7 +54,13 @@ make case UNIT=UNIT-0014 ORG=org_demo_alpha     # one workflow, in full
 make serve            # orchestrator API on :8100 (POST /workflows, GET /workflows/{id}, GET /health)
 ```
 
-Out of the box everything runs on **organiser stub agents** replaying the synthetic Round 2 CSVs. **Replacing a stub with your real agent is your job.**
+The standard `Test` integration contains all five agent managers. Agent registrations and state directories are trusted server-side configuration; the real adapters do not silently fall back to synthetic CSV judgments. See each `agents/<stage>/README.md` before running a workflow.
+
+## Operations console
+
+Set unique values for `ORG_ALPHA_TOKEN` and `ORG_BRAVO_TOKEN` in your untracked `.env`, then run `make serve` (or, on Windows, `.venv\Scripts\python.exe -m uvicorn orchestration.api:app --port 8100 --env-file .env`) and open [http://localhost:8100](http://localhost:8100). The browser console supports tenant sign-in, workflow creation, stage/evidence review, resume, and human overrides across the full configured flow. The orchestrator exchanges the tenant token for an eight-hour HttpOnly, same-site cookie; the token is not stored in browser script storage. Recent workflow IDs are kept separately in the current browser for each tenant.
+
+The console uses the existing tenant-scoped workflow API; tenant tokens are loaded only into the server process and compared server-side. Sign-in creates a random opaque server-side session; the tenant token itself is never sent back to the browser. Sessions expire after eight hours and are process-local, so a service restart signs users out and multi-worker deployments need a shared session store. The recorded actor is the shared tenant-token operator, not a verified individual identity. Do not commit `.env` or expose this local/demo service publicly without TLS, strong unique secrets, and deployment-grade authentication and authorization. Each agent still requires its own trusted registration and state configuration described in that agent's README; the UI does not configure agent providers, captures, or credentials.
 
 Run an agent as its own service:
 

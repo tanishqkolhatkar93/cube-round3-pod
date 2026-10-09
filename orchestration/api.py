@@ -7,16 +7,22 @@
   POST /workflows/{id}/resume     -> continue after a halt / decision / failure
   POST /workflows/{id}/overrides  {"record_id": "...", "new_verdict": "PASS", "actor": "...", "reason": "..."}
   GET  /health                    -> orchestrator and every agent in the flow
+  GET  /                          -> same-origin operations console
 Resource routes require a Principal in ASGI scope from trusted authentication middleware.
 No client header or body value establishes that identity. Unconfigured access fails closed.
 """
 from __future__ import annotations
 
 import os
+import secrets
+import threading
+import time
 from dataclasses import dataclass
+from pathlib import Path
 
-from fastapi import Depends, FastAPI, HTTPException, Request
+from fastapi import Depends, FastAPI, HTTPException, Request, Response
 from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
 
 from shared.utils import sample_data
 
@@ -27,6 +33,19 @@ from .store import EvidenceConflict, FileStore, StoreIntegrityError, identifier
 app = FastAPI(title="CUBE Round 3 orchestrator")
 FLOW = os.environ.get("ORCH_FLOW") or default_flow_path()
 STORE = FileStore()
+FRONTEND_DIR = Path(__file__).resolve().parents[1] / "frontend"
+SESSION_COOKIE = "cube_operations_session"
+SESSION_MAX_AGE = 8 * 60 * 60
+SESSION_LOCK = threading.Lock()
+SESSIONS: dict[str, tuple["Principal", float]] = {}
+TENANT_TOKEN_ENV = {
+    "org_demo_alpha": "ORG_ALPHA_TOKEN",
+    "org_demo_bravo": "ORG_BRAVO_TOKEN",
+}
+
+
+def same_secret(left: str, right: str) -> bool:
+    return secrets.compare_digest(left.encode("utf-8"), right.encode("utf-8"))
 
 
 @app.get("/health")
@@ -34,10 +53,23 @@ def health() -> dict:
     agents = {}
     for stage in flow_stages(load_flow(FLOW)):
         client = client_for(stage)
+        manifest = load_manifest(stage)
         try:
-            agents[stage] = client.health() if isinstance(client, HttpClient) else {"status": "ok", "mode": "inproc"}
+            report = client.health() if isinstance(client, HttpClient) else {"status": "ok", "mode": "inproc"}
+            agents[stage] = {
+                **report,
+                "agent_id": manifest["agent_id"],
+                "implementation": manifest["implementation"],
+                "owner": manifest["owner"],
+            }
         except Exception as exc:
-            agents[stage] = {"status": "down", "error": str(exc)[:200], "owner": load_manifest(stage)["owner"]}
+            agents[stage] = {
+                "status": "down",
+                "error": str(exc)[:200],
+                "agent_id": manifest["agent_id"],
+                "implementation": manifest["implementation"],
+                "owner": manifest["owner"],
+            }
     ok = all(a["status"] == "ok" for a in agents.values())
     return {"status": "ok" if ok else "degraded", "flow": load_flow(FLOW)["flow_id"], "agents": agents}
 
@@ -59,6 +91,105 @@ def require_principal(request: Request) -> Principal:
     if not isinstance(principal, Principal):
         raise HTTPException(401, "authenticated tenant context required")
     return principal
+    
+# --- Demo principal: OFF by default; set ONLY by the operator via env (server-side
+# trusted configuration, not a client header). Production replaces this with real
+# authentication middleware. Misconfigured -> stays fail-closed.
+_DEMO_PRINCIPAL = os.environ.get("ORCH_DEMO_PRINCIPAL")  # e.g. "org_demo_alpha:op_demo"
+
+@app.middleware("http")
+async def _demo_principal_middleware(request, call_next):
+    if _DEMO_PRINCIPAL and "orchestration.principal" not in request.scope:
+        org, _, actor = _DEMO_PRINCIPAL.partition(":")
+        try:
+            request.scope["orchestration.principal"] = Principal(org, actor or "demo-operator")
+        except ValueError:
+            pass
+    return await call_next(request)
+
+
+def configured_tenant_token(org_id: str) -> str:
+    env_name = TENANT_TOKEN_ENV[org_id]
+    token = os.environ.get(env_name, "")
+    if not token or token.startswith("replace-with-"):
+        raise HTTPException(503, f"tenant access is not configured ({env_name})")
+    for other_org, other_env_name in TENANT_TOKEN_ENV.items():
+        other_token = os.environ.get(other_env_name, "")
+        if (
+            other_org != org_id
+            and other_token
+            and not other_token.startswith("replace-with-")
+            and same_secret(token, other_token)
+        ):
+            raise HTTPException(503, "tenant access tokens must be unique")
+    return token
+
+
+@app.middleware("http")
+async def authenticate_tenant_session(request: Request, call_next):
+    presented = request.cookies.get(SESSION_COOKIE)
+    if presented:
+        with SESSION_LOCK:
+            session = SESSIONS.get(presented)
+            if session and session[1] <= time.time():
+                SESSIONS.pop(presented, None)
+                session = None
+        if session:
+            request.scope["orchestration.principal"] = session[0]
+    return await call_next(request)
+
+
+@app.post("/auth/session")
+def create_session(body: dict, request: Request, response: Response) -> dict:
+    org_id, token = body.get("org_id"), body.get("token")
+    if not isinstance(org_id, str) or org_id not in TENANT_TOKEN_ENV:
+        raise HTTPException(401, "invalid organization credentials")
+    expected = configured_tenant_token(org_id)
+    if not isinstance(token, str) or not same_secret(token, expected):
+        raise HTTPException(401, "invalid organization credentials")
+    actor = f"{org_id}:operator"
+    session_id = secrets.token_urlsafe(32)
+    expires_at = time.time() + SESSION_MAX_AGE
+    with SESSION_LOCK:
+        now = time.time()
+        expired_sessions = [key for key, value in SESSIONS.items() if value[1] <= now]
+        for key in expired_sessions:
+            SESSIONS.pop(key, None)
+        SESSIONS[session_id] = (Principal(org_id=org_id, actor=actor), expires_at)
+    response.set_cookie(
+        SESSION_COOKIE,
+        session_id,
+        max_age=SESSION_MAX_AGE,
+        httponly=True,
+        secure=request.url.scheme == "https",
+        samesite="strict",
+        path="/",
+    )
+    return {"org_id": org_id, "actor": actor, "expires_in": SESSION_MAX_AGE}
+
+
+@app.get("/auth/session")
+def current_session(request: Request) -> dict:
+    principal = request.scope.get("orchestration.principal")
+    if not isinstance(principal, Principal):
+        return {"authenticated": False}
+    return {"authenticated": True, "org_id": principal.org_id, "actor": principal.actor}
+
+
+@app.delete("/auth/session")
+def delete_session(request: Request, response: Response) -> dict:
+    session_id = request.cookies.get(SESSION_COOKIE)
+    if session_id:
+        with SESSION_LOCK:
+            SESSIONS.pop(session_id, None)
+    response.delete_cookie(
+        SESSION_COOKIE,
+        httponly=True,
+        secure=request.url.scheme == "https",
+        samesite="strict",
+        path="/",
+    )
+    return {"signed_out": True}
 
 
 @app.exception_handler(StoreIntegrityError)
@@ -125,3 +256,6 @@ def override(workflow_id: str, body: dict, principal: Principal = Depends(requir
                               reason=body.get("reason", ""), new_outcome=body.get("new_outcome"))
     except ValueError:
         raise HTTPException(422, "invalid override") from None
+
+
+app.mount("/", StaticFiles(directory=FRONTEND_DIR, html=True), name="frontend")
