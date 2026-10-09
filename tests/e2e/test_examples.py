@@ -26,6 +26,35 @@ def test_example_validates(path):
 
 @pytest.mark.parametrize("folder", ["happy-path", "uncertain-path", "end-to-end"])
 def test_example_cases_with_integrated_returns(folder):
+    """Static examples remain valid; real agents require captures rather than CSV judgments."""
+    case = json.loads((EXAMPLES / folder / "case.json").read_text())
+    flow = load_flow(EXAMPLES.parent / "orchestration/flow.json")
+    store = MemoryStore()
+    wf = run_workflow(case, flow, store)
+    documented = json.loads((EXAMPLES / folder / ("workflow-state.continue.json" if folder == "uncertain-path" else "workflow-state.json")).read_text())
+    if case["returned"]:
+        stage = next(s for s in wf["stage_results"] if s["stage"] == "returns")
+        evidence = store.get_evidence(stage["record_id"])
+        assert stage["error"]["code"] == "missing_image"
+        assert evidence["status"] == "pending" and evidence["decision"]["verdict"] == "UNCERTAIN"
+        assert evidence["agent_id"] == "returns-manager@1"
+        expected_outcome = {"happy-path": "INCOMPLETE", "end-to-end": "CLAIM_RECOMMENDED"}[folder]
+        assert (wf["status"], wf["final_outcome"]["outcome"]) == ("FAILED", expected_outcome)
+        assert wf["final_outcome"]["provisional"] is True
+    else:
+        receiving = next(s for s in wf["stage_results"] if s["stage"] == "receiving")
+        assert receiving["error"]["code"] == "upstream_missing"
+        assert receiving["evidence_status"] == "pending" and receiving["verdict"] == "UNCERTAIN"
+        assert (wf["status"], wf["final_outcome"]["outcome"]) == ("FAILED", "INCOMPLETE")
+        assert wf["final_outcome"]["provisional"] is True
+
+
+# Explicit registered Receiving execution, alongside missing-capture coverage.
+from agents.receiving.tests.integration_support import receiving_observed
+
+
+@pytest.mark.parametrize("folder", ["happy-path", "uncertain-path", "end-to-end"])
+def test_example_cases_with_registered_receiving(folder, receiving_observed):
     """Static examples remain valid; missing Returns photos now produce explicit pending evidence."""
     case = json.loads((EXAMPLES / folder / "case.json").read_text())
     flow = load_flow(EXAMPLES.parent / "orchestration/flow.json")

@@ -83,6 +83,23 @@ def test_recovery_honours_overrides_of_previous_evidence(cases):
 
 
 def test_agent_level_override_is_append_only(cases):
+    # Exercise the shared override contract on an explicit judgment. Real Receiving
+    # correctly has no checks when sample cases provide no authorized captures.
+    from tests.helpers import Fake
+    out = Fake().run(make_input("receiving", cases[0]), 30)
+    rec, target = out["evidence"], out["evidence"]["checks"][0]
+    new = add_agent_override(rec, by="op_test", target=target["check_key"], new_verdict="FAIL", reason="operator disagrees")
+    assert new["overrides"][0]["original_verdict"] == target["verdict"]
+    assert new["checks"] == rec["checks"], "an override must never rewrite the original check"
+    assert verify(new), "agent-level overrides sit outside the content hash"
+    assert len(add_agent_override(new, by="op2", target="decision", new_verdict="PASS", reason="second look")["overrides"]) == 2
+
+
+# Explicit registered Receiving execution, alongside missing-capture coverage.
+from agents.receiving.tests.integration_support import receiving_observed
+
+
+def test_receiving_agent_level_override_is_append_only(cases, receiving_observed):
     out = client_for("receiving").run(make_input("receiving", cases[0]), 30)
     rec, target = out["evidence"], out["evidence"]["checks"][0]
     new = add_agent_override(rec, by="op_test", target=target["check_key"], new_verdict="FAIL", reason="operator disagrees")

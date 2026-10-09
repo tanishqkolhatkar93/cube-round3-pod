@@ -160,3 +160,26 @@ in [the Returns README](../agents/returns/README.md).
   become degraded `invalid_output`, never an overwrite. A crash between separate
   evidence and workflow writes is not a multi-file transaction; reconciliation may
   still be needed. Host filesystem owners and privileged local code remain trusted.
+
+### Receiving findings and decisions
+
+- D-R1: Stage fixtures against the owning unit's specification. Zain's original
+  UNIT-0012 and UNIT-0039 images remain known PO mismatches; regeneration remains
+  fixture work, not a reason to suppress adverse judgments.
+- D-R2: DEGRADED photos are used and recorded. REJECTED photos cannot support
+  PASS. Mixed usable/rejected required captures leave the inspection pending.
+- D-R3: Contract references use canonical forward slashes. The authoritative
+  registered resolver rejects backslash aliases, traversal, encoded paths,
+  absolute/drive/UNC paths and symlinks/junctions; no basename fallback remains.
+- D-R4: Generated fixture text/watermarks can confuse label extraction. These
+  synthetic images must not be presented as physical receiving evidence.
+- D-R5: Observation caching is content/model/prompt based and uses serialized
+  SQLite publication. Cache hits retain model identity and count zero SDK calls;
+  explicit retries/fallback calls are counted even when they fail.
+- D-R6: Preserve Zain's RCV- plus 12 SHA256 hex characters of request_id on all
+  paths. Scope the separate request ledger by tenant/workflow/subject/request.
+  Globally scoped request IDs remain necessary for the shared immutable store.
+- D-R7: An existing request cannot change because a missing capture arrived.
+  Changed request/spec/capture content conflicts; reconcile with a new attempt ID.
+- D-R8: All applicable checks affect the final verdict, including units_per_carton.
+  Extraction errors cannot silently discard required evidence or produce PASS.

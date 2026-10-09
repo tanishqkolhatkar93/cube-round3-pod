@@ -85,6 +85,9 @@ def test_full_workflow_over_http_matches_in_process(http_mode, cases, monkeypatc
             if stage["stage"] == "returns":
                 assert stage["state"] == "error" and stage["evidence_status"] == "pending"
                 assert stage["error"]["code"] == "missing_image" and stage["verdict"] == "UNCERTAIN"
+            elif stage["stage"] == "receiving":
+                assert stage["state"] == "error" and stage["evidence_status"] == "pending"
+                assert stage["error"]["code"] == "upstream_missing" and stage["verdict"] == "UNCERTAIN"
             else:
                 assert stage["state"] in ("completed", "skipped")
 
@@ -96,3 +99,25 @@ def test_dead_agent_is_recorded_not_hidden(monkeypatch, cases):
     wf = run_workflow(cases[0], flow)
     sr = wf["stage_results"][0]
     assert sr["state"] == "error" and sr["error"]["code"] == "agent_unavailable" and wf["status"] == "FAILED"
+
+
+# Explicit registered Receiving execution, alongside missing-capture coverage.
+from agents.receiving.tests.integration_support import receiving_observed
+
+
+def test_registered_receiving_workflow_over_http_matches_in_process(http_mode, cases, monkeypatch, receiving_observed):
+    case = next(c for c in cases if c["route"] == "fba" and c["returned"])
+    over_http = run_workflow(case)
+    monkeypatch.setenv("ORCH_MODE", "inproc")
+    # Independent workflow runs regenerate upstream timestamps. Compare transports
+    # with separate ledgers; replay itself must use byte-identical request content.
+    monkeypatch.setenv("RETURNS_STATE_DIR", str(Path(os.environ["RETURNS_STATE_DIR"]) / "inproc-comparison"))
+    in_proc = run_workflow(case)
+    assert (over_http["status"], over_http["final_outcome"]["outcome"]) == (in_proc["status"], in_proc["final_outcome"]["outcome"])
+    for workflow in (over_http, in_proc):
+        for stage in workflow["stage_results"]:
+            if stage["stage"] == "returns":
+                assert stage["state"] == "error" and stage["evidence_status"] == "pending"
+                assert stage["error"]["code"] == "missing_image" and stage["verdict"] == "UNCERTAIN"
+            else:
+                assert stage["state"] in ("completed", "skipped")

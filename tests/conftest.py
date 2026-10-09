@@ -41,7 +41,25 @@ def applies(stage: str, case: dict) -> bool:
 
 
 def make_input(stage: str, case: dict, previous=None, overrides=None) -> dict:
+    from orchestration.orchestrator import discover_inputs
     wf = f"WF-{case['org_id']}-{case['unit_id']}"
     return {"schema_version": "1.0", "request_id": f"{wf}:{stage}", "workflow_id": wf, "stage": stage,
             "subject": {"org_id": case["org_id"], "subject_id": case["unit_id"], "route": case["route"]},
-            "inputs": [], "previous_evidence": previous or [], "context": {"overrides": overrides or [], "case": case}}
+            "inputs": discover_inputs(case["unit_id"], stage), "previous_evidence": previous or [], "context": {"overrides": overrides or [], "case": case}}
+
+
+@pytest.fixture(autouse=True)
+def receiving_isolated_state(tmp_path, monkeypatch):
+    """Independent test workflows must not share the Receiving replay ledger."""
+    from agents.receiving import app as receiving
+    from agents.receiving.core.config import CFG
+    root = tmp_path / "receiving-input"
+    root.mkdir()
+    monkeypatch.setenv("INPUT_DIR", str(root))
+    monkeypatch.setattr(receiving, "DATA_INPUT", root)
+    monkeypatch.setattr(CFG, "cache_dir", tmp_path / "receiving-cache")
+    monkeypatch.setattr(CFG, "gemini_api_key", "")
+    monkeypatch.setenv("RECEIVING_STATE_DIR", str(tmp_path / "receiving-state"))
+    registry = tmp_path / "receiving-captures.json"
+    registry.write_text('{"captures": []}', encoding="utf-8")
+    monkeypatch.setenv("RECEIVING_CAPTURE_REGISTRY", str(registry))
