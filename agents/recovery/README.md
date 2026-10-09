@@ -11,7 +11,8 @@ storage and internal service access must be protected by the deployment.
 Each registered JSON document has `org_id`, `subject_id`, `workflow_id`,
 `complete` (boolean), `line_count` and `lines`. Every line has `line_id`,
 `charge_type`, `amount_usd`, `currency: USD`, `unit_scope` and `refs`.
-Amounts must be finite, nonnegative and exact cents (maximum 1,000,000 USD per
+Order-scoped fees require `refs.order_id`; PO-line fees require `refs.po_number`
+and `refs.po_line`. Amounts must be finite, nonnegative and exact cents (maximum 1,000,000 USD per
 line); there are at most 200 lines per report. The same line ID cannot appear
 in two reports. A trusted, complete report explicitly asserting zero lines can
 prove no fees. Missing/partial reports cannot. Scope and references must match
@@ -50,3 +51,6 @@ SQLite reservations provide exact replay and changed-content conflicts across
 threads/process restarts. Interrupted work is not automatically reinferred.
 Provider accuracy and real channel-policy validity still require deployment
 validation. Unit/integration tests use explicit synthetic reports and observations.
+
+The processing budget suppresses late completed judgments and hard-cancels the
+provider worker. Trusted local filesystem I/O itself is not preemptible.

@@ -221,3 +221,9 @@ def test_invalid_nonfinite_model_payload_still_produces_truthful_pending(h):
     assert out['model']['calls']==1 and out['model']['version']=='fixture-version'
     assert out['evidence']['payload']['observations'] is None
     assert app.handle(h.request)==out
+
+
+def test_pack_registration_requires_an_order_identity(h):
+    h.binding['refs']={};h.save()
+    with pytest.raises(Rejected,match='invalid_configuration'):app.handle(h.request)
+    assert h.calls==0

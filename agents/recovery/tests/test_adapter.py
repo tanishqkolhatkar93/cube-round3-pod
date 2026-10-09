@@ -101,6 +101,14 @@ def test_scope_mismatch_cannot_support_fee(h):
     assert out['verdict']=='UNCERTAIN' and out['evidence']['payload']['claimable_usd']==0
 
 
+@pytest.mark.parametrize('scope',['order','po_line'])
+def test_scoped_fee_requires_explicit_join_keys(h,scope):
+    h.report['lines'][0]['unit_scope']=scope;h.update()
+    out=app.handle(h.request)
+    assert out['status']=='pending' and out['error']['code']=='invalid_or_incomplete_report'
+    assert out['evidence']['payload']['claimable_usd']==0
+
+
 def test_override_requires_registration_new_request_and_preserves_original(h):
     original=app.handle(h.request)
     override={'override_id':'OVR-1','supersedes':{'record_id':'PRP-a','override_id':None},'target':'decision',

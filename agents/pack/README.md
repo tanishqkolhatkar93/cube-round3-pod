@@ -16,8 +16,8 @@ content conflicts 409. Nothing auto-registers a request's captures.
 The config has `version: 1`, `bindings: [...]` and optional `provider`.
 Each binding requires `org_id`, `subject_id`, `workflow_id`, a physical
 `captured_at` timestamp with timezone, `files`, `trusted_agents`, and for Pack,
-`order_lines` mapping SKU to positive integer quantity. Optional `refs` contains
-order join keys. Each file has `ref`, relative `path`, SHA-256 `sha256`, and
+`order_lines` mapping SKU to positive integer quantity. `refs.order_id` is
+required to bind the capture to an actual order. Each file has `ref`, relative `path`, SHA-256 `sha256`, and
 `kind: image`. Paths are relative to the config directory. Register all required
 views. Requests MUST submit the complete registered set with matching hashes.
 Only PNG/JPEG/WEBP images up to 10 MB and 20 million pixels are accepted (8 files
@@ -49,3 +49,7 @@ content requires a new request ID; interrupted reservations require reconciliati
 Tests use generated images and explicitly injected observations. They do not
 certify real model accuracy. Deployments must validate capture coverage and live
 provider behavior. Production does not import test fixtures.
+
+The provider worker has a hard cancellation deadline; trusted local filesystem
+I/O is not preemptible. Late completed judgments are suppressed. Use protected
+local storage, not an unbounded remote filesystem.

@@ -13,14 +13,7 @@ Each image is a view of the SAME order, not another batch. Return JSON with thes
 POLICY = 'pack-deterministic-v1:' + runtime.digest(PROMPT)
 
 
-def lines(value):
-    if not isinstance(value, dict) or not value:
-        raise ValueError('order manifest required')
-    for sku, count in value.items():
-        text(sku)
-        if type(count) is not int or not 1 <= count <= 100_000:
-            raise ValueError('invalid manifest count')
-    return value
+lines = runtime.validate_order_lines
 
 
 def parse(value, images):

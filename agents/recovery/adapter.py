@@ -44,6 +44,9 @@ def reports(documents, binding):
                 raise ValueError()
             if not isinstance(line['refs'],dict) or any(binding.get('refs',{}).get(k)!=v for k,v in line['refs'].items()):
                 raise ValueError('charge_reference_conflict')
+            required_refs={'unit':(), 'order':('order_id',), 'po_line':('po_number','po_line')}[line['unit_scope']]
+            if any(line['refs'].get(k) in (None,'') for k in required_refs):
+                raise ValueError('charge_scope_reference_missing')
             ids.add(line['line_id']);money(line['amount_usd'])
             charges.append({**line, 'amount_usd':float(money(line['amount_usd'])), 'source_ref':document['ref']})
     return charges

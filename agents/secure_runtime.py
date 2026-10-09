@@ -25,6 +25,14 @@ from shared.utils.schema import validate
 from shared.utils.records import build_record, build_output, error_obj, rollup
 
 
+def validate_order_lines(value):
+    if not isinstance(value,dict) or not value:raise ValueError('order manifest required')
+    for sku,count in value.items():
+        text(sku)
+        if type(count) is not int or not 1<=count<=100_000:raise ValueError('invalid manifest count')
+    return value
+
+
 def configuration(stage):
     name = os.environ.get(stage.upper() + '_CONFIG')
     state = os.environ.get(stage.upper() + '_STATE_DIR')
@@ -54,17 +62,15 @@ def configuration(stage):
                 for agent in agents:text(agent)
             if not isinstance(b.get('refs',{}),dict) or not isinstance(b.get('trusted_overrides',[]),list):
                 raise ValueError()
+            if b.get('client_id') is not None:text(b['client_id'])
             for item in b['files']:
                 fields(item, ('ref','path','sha256','kind'))
                 safe_ref(item['ref']);safe_ref(item['path'])
                 if item['kind'] != ('image' if stage=='pack' else 'document'):
                     raise ValueError()
             if stage=='pack':
-                order=b.get('order_lines')
-                if not isinstance(order,dict) or not order:raise ValueError()
-                for sku,count in order.items():
-                    text(sku)
-                    if type(count) is not int or not 1<=count<=100_000:raise ValueError()
+                validate_order_lines(b.get('order_lines'))
+                text(b.get('refs',{}).get('order_id'))
         selection = config.get('provider')
         if selection is not None:
             fields(selection, ('model', 'api_key_env', 'deadline_s'))
