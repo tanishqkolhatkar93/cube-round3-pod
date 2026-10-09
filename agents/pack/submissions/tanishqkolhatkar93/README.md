@@ -1,8 +1,12 @@
 # 📦 Pack Manager AI
 
+> Historical Round 2 submission, preserved as authored. Runtime instructions and
+> metrics below are not the current Round 3 implementation or verified results.
+> See [HISTORICAL.md](HISTORICAL.md) and [current runtime](../../README.md).
+
 **🚀 Live Deployment:** [https://tanishqkolhatkar93-package-manager.streamlit.app/](https://tanishqkolhatkar93-package-manager.streamlit.app/)
 
-**Author:** Tanishq Kolhatkar 
+**Author:** Tanishq Kolhatkar
 
 **Mail Id**  - tanishqkolhatkar93@gmail.com   | [Linkedln](https://www.linkedin.com/in/tanishq93/)
 

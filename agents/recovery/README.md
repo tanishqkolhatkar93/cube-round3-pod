@@ -1,44 +1,56 @@
-# agents/recovery/  ·  Recovery Manager
+# Recovery Manager � trusted reports and evidence
 
-**Owner:** Member 5 (Recovery Manager)  (set `owner` in `agent.json` and the handle in `.github/CODEOWNERS`)
+The actual `agents.recovery.app.handle` and `/run` use the same secure boundary.
+There is no sample fee CSV fallback. Set `RECOVERY_CONFIG` and
+`RECOVERY_STATE_DIR` as described in the Pack registration documentation, with
+`kind: document` entries pointing to JSON reports. Configuration/state/source
+storage and internal service access must be protected by the deployment.
 
-> **This folder currently contains an organiser stub** that replays the synthetic Round 2 CSV. It is *not* an agent. Replace it, then replace this README with one that describes what you actually built, how to run it, and its limits.
+## Report input contract
 
-| | |
-|---|---|
-| **Reads (inputs)** | Channel fee / reimbursement report lines (no camera) |
-| **Reads (previous evidence)** | **All** earlier records |
-| **Produces** | per-charge position (supports / contradicts / silent), a claim with attached evidence and a dollar figure, and an explicit list of what cannot be claimed and why |
-| **Recommended `check_key`s** | one `charge_<line_id>` check per fee line |
-| **`decision.outcome` values** | `claim_recommended, no_claim, insufficient_evidence, pending_review` |
+Each registered JSON document has `org_id`, `subject_id`, `workflow_id`,
+`complete` (boolean), `line_count` and `lines`. Every line has `line_id`,
+`charge_type`, `amount_usd`, `currency: USD`, `unit_scope` and `refs`.
+Order-scoped fees require `refs.order_id`; PO-line fees require `refs.po_number`
+and `refs.po_line`. Amounts must be finite, nonnegative and exact cents (maximum 1,000,000 USD per
+line); there are at most 200 lines per report. The same line ID cannot appear
+in two reports. A trusted, complete report explicitly asserting zero lines can
+prove no fees. Missing/partial reports cannot. Scope and references must match
+the registered binding. These are source/adapter constraints, not fee eligibility
+policy. Reports are actual request inputs whose bytes must match registration.
 
-Your check semantics are the one place verdicts read differently: the condition is *"this charge is supported by evidence"*, so `FAIL` = contradicted = **claim**, `UNCERTAIN` = SILENT = **never a claim**. A wrongly filed claim costs a seller standing; a missed one costs only money, so report **precision**. You will meet every contract and data problem first (findings F-07 to F-12): raise them early. In a **Specialist Pod** there is no Prep evidence: inbound-defect charges must be SILENT, not guessed.
+Upstream records require canonical hashes, exact org/subject/workflow/client,
+registered agent IDs, valid unit scope and traceable input/upstream references.
+Incomplete records cannot support financial positions. Fees only use records
+with matching unit scope and all declared join keys. Agent-level unhashed
+overrides are rejected. Workflow overrides require exact operator registration
+in `trusted_overrides`, plus a valid decision chain; a reassessment must have a
+new request ID. The original evidence is never rewritten. Hashes establish
+integrity, not origin authentication: calls must come from trusted orchestration.
 
-## Where your code goes
+## Policy and inference
 
-```text
-agents/recovery/
-├── app.py          ← expose  handle(agent_input: dict) -> dict  (an Agent Output). Keep `app = make_app(...)` to serve over HTTP.
-├── agent.json      ← stage · agent_id · owner · mode (inproc | http) · url · an honest `implementation` description
-├── PROVENANCE.md   ← your Round 2 repo URL + commit this came from (create it)
-├── README.md       ← this file, rewritten
-└── …               ← your Round 2 code, prompts, rules, fixtures
-```
+The PR #8 deterministic rules are retained: zero-dollar fees are nonclaimable;
+Prep PASS contradicts an inbound-defect fee, Prep FAIL supports it; Receiving
+shortfalls do not prove channel lost-inbound claims. Scope still must match.
+Weight-tier inference requires finite positive `weight_g`, `length_cm`,
+`width_cm`, `height_cm` values from eligible Prep evidence. Invalid/absent
+measurements never reach Gemini. These units define the adapter's accepted
+measurement format; no tariff thresholds are invented.
 
-## Integrating, in order
+Other fees require an operator-owned `fee_policies` mapping of charge type to
+`{version, text}`. Without a registered policy or eligible evidence they remain
+SILENT. All unresolved eligible lines are sent in ONE batched Gemini call using
+the common killable transport (at most 20 seconds, no retries). Every response
+must cover exactly those lines and cite eligible records. Invalid responses or
+provider/cleanup failures produce pending evidence with zero claimable amount
+and retained call/model/attempt accounting. Deterministic positions cannot be
+overridden by model responses. Only CONTRADICTS positions contribute dollars.
 
-1. Read [`INTEGRATION-GUIDE.md`](../../INTEGRATION-GUIDE.md) and [`EVIDENCE-CONTRACT.md`](../../EVIDENCE-CONTRACT.md); open [`examples/end-to-end/`](../../examples/) for a real Agent Output.
-2. In `handle()`: read `request["subject"]`, `request["inputs"]` (your captures) and `request["previous_evidence"]`; run your agent (**one batched model call per unit**); build the record with `shared.utils.records.build_record()` and wrap it with `build_output()`.
-3. **Fail open.** On a model error return `pending_output(...)`, not an exception. Never invent evidence: if you did not see it, say UNCERTAIN with an `uncertain_reason`.
-4. **Refuse other tenants.** Raise `LookupError` (HTTP 404) for a subject that is not under `subject.org_id`.
-5. Make it idempotent: the same `request_id` must yield the same `record_id`. Use the **latest override** of previous evidence (`context.overrides`).
-6. Run `pytest tests/integration/test_agent_contracts.py`, first on the stub (it passes), then on yours, **with your own fixtures**.
-7. Run the whole system: `make run` and `make test`.
+SQLite reservations provide exact replay and changed-content conflicts across
+threads/process restarts. Interrupted work is not automatically reinferred.
+Provider accuracy and real channel-policy validity still require deployment
+validation. Unit/integration tests use explicit synthetic reports and observations.
 
-## Run on its own
-
-```sh
-.venv/bin/uvicorn agents.recovery.app:app --port 8105
-curl localhost:8105/health
-```
-Then set `"mode": "http"` in `agent.json` if you want the orchestrator to call it over HTTP.
+The processing budget suppresses late completed judgments and hard-cancels the
+provider worker. Trusted local filesystem I/O itself is not preemptible.

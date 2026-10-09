@@ -1,6 +1,6 @@
 # 🛠️ Engineering Build Log: Pack Manager AI
 
-**Candidate:** Tanishq Kolhatkar ([@tanishqkolhatkar93](https://github.com/tanishqkolhatkar93))  
+**Candidate:** Tanishq Kolhatkar ([@tanishqkolhatkar93](https://github.com/tanishqkolhatkar93))
 **Project:** Pack Manager AI (CUBE Buildathon Round 2)
 
 ---
@@ -9,7 +9,7 @@
 - **Objective:** Establish clean separation of concerns between operator touchpoints and core vision inference.
 - **Actions Taken:**
   - Designed decoupled architecture: Streamlit frontend (operator tablet UI) + FastAPI backend (stateless inference service).
-  - Drafted strict Pydantic schemas (OrderManifest, PackVerificationResult, CheckDetail) to enforce boolean flags (Sell_items_present, quantities_match, 
+  - Drafted strict Pydantic schemas (OrderManifest, PackVerificationResult, CheckDetail) to enforce boolean flags (Sell_items_present, quantities_match,
 o_extra_items) over unstructured natural language responses.
 - **Design Takeaway:** Enforcing rigid Pydantic schemas eliminates downstream hallucination and enables deterministic SEAL vs. STOP & FIX decisions.
 

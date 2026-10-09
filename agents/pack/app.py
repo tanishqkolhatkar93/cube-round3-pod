@@ -1,92 +1,59 @@
-import os
-from shared.utils import sample_data
+"""Tanishq's Pack handler, with registered captures and authoritative rules."""
 from shared.utils.records import build_output, build_record, check
-from shared.utils.server import make_app
-from shared.utils.stubs import photos
-from agents.pack.vision import analyze_package_image
+from agents import secure_runtime as runtime
+from agents.pack.safety import invoke, observations, pending_output, model_metadata, payload, PROMPT
 
 STAGE = "pack"
-AGENT_ID = "pack-manager@1"
-MODEL_NAME = "gemini-flash-lite-latest"
-MODEL_METADATA = {"name": MODEL_NAME, "version": "1.0", "provider": "google", "calls": 1, "cost_usd": 0.001}
+AGENT_ID = "pack-manager@2"
+POLICY = "tanishq-pack-v2:" + runtime.digest(PROMPT)
 
-def handle(request: dict) -> dict:
-    s = request["subject"]
-    
-    # Enforce cross-tenant security
-    if s["org_id"] not in ["org_demo_alpha", "org_demo_bravo"]:
-        raise ValueError("Invalid organization ID.")
-        
-    r = sample_data.row("pack", s["subject_id"], s["org_id"])
-    
-    expected_order_lines = r["order_lines"]
-    refs = [p["ref"] for p in photos(r)]
-    photo_inputs = photos(r)
-    
-    image_bytes = None
-    if refs:
-        # Determine actual file path
-        image_path = refs[0]
-        if os.path.exists(image_path):
-            with open(image_path, "rb") as f:
-                image_bytes = f.read()
-    
-    if not image_bytes:
-        # Fallback to a placeholder if test images are missing, or return UNCERTAIN
-        checks = [
-            check("items_present", "UNCERTAIN", None, expected=expected_order_lines, observed="None", detail="Image file missing", evidence_refs=refs),
-            check("quantities_correct", "UNCERTAIN", None, expected="Match", observed="None", detail="Image file missing", evidence_refs=refs),
-            check("no_extra_items", "UNCERTAIN", None, expected="Match", observed="None", detail="Image file missing", evidence_refs=refs)
-        ]
-        record = build_record(
-            request, agent_id=AGENT_ID, record_id=r["record_id"], captured_at=r["captured_at"], operator_id=r.get("operator_id"),
-            unit_scope="order", refs={"order_id": r["order_id"]}, checks=checks, outcome="UNCERTAIN", model=MODEL_METADATA,
-            inputs=photo_inputs, reason="Missing image data, unable to verify pack.",
-            payload={"channel": r["channel"]}
-        )
-        return build_output(record)
+def assess(request, binding, evidence, images, photo_inputs, failure, provider, rid, fingerprint):
+    expected_order_lines = runtime.validate_order_lines(binding["order_lines"])
+    refs = [p["ref"] for p in photo_inputs]
+    stats = {"calls": 0, "attempts": []}
+    def pending(code):
+        return pending_output(request, binding, photo_inputs, rid, stats, fingerprint, code)
+    if failure:
+        return pending(failure)
 
     try:
         # Run Vision API
-        ai_result = analyze_package_image(image_bytes, expected_order_lines)
-        
-        c_items = "PASS" if ai_result.checks_performed.all_items_present else "FAIL"
-        c_qty = "PASS" if ai_result.checks_performed.quantities_correct else "FAIL"
-        c_extra = "PASS" if ai_result.checks_performed.no_extra_items else "FAIL"
-        
+        ai_result, failure = invoke(provider, PROMPT, {"refs": refs, "order_lines": expected_order_lines}, images, stats)
+        if failure:
+            return pending(failure)
+        try:
+            actual, failure = observations(ai_result, images)
+        except (ValueError, TypeError, KeyError):
+            return pending("invalid_provider_response")
+        if failure:
+            return pending(failure)
+        c_items = "PASS" if expected_order_lines.keys() <= actual.keys() else "FAIL"
+        c_qty = "PASS" if all(actual.get(sku) == count for sku, count in expected_order_lines.items()) else "FAIL"
+        c_extra = "PASS" if actual.keys() <= expected_order_lines.keys() else "FAIL"
+
         checks = [
-            check("items_present", c_items, None, expected=expected_order_lines, observed=ai_result.observed_items, evidence_refs=refs),
-            check("quantities_correct", c_qty, None, expected="Correct quantities", observed="Check output", evidence_refs=refs),
-            check("no_extra_items", c_extra, None, expected="No extra items", observed="Check output", evidence_refs=refs)
+            check("items_present", c_items, None, expected=sorted(expected_order_lines), observed=sorted(actual), evidence_refs=refs),
+            check("quantities_correct", c_qty, None, expected=expected_order_lines, observed=actual, evidence_refs=refs),
+            check("no_extra_items", c_extra, None, expected=[], observed=sorted(actual.keys()-expected_order_lines.keys()), evidence_refs=refs)
         ]
-        
-        outcome_map = {
-            "SEAL": "seal",
-            "STOP_AND_FIX": "stop_and_fix",
-            "UNCERTAIN": "UNCERTAIN"
-        }
-        pack_out = outcome_map.get(ai_result.verdict, "UNCERTAIN")
-        
+
+        pack_out = "seal" if all(c["verdict"] == "PASS" for c in checks) else "stop_and_fix"
+        advisory = ai_result.get("assessment")
+        if pack_out == "seal" and advisory and (advisory["verdict"] != "SEAL" or not all(advisory["checks_performed"].values())):
+            return pending("model_rule_disagreement")
+
         record = build_record(
-            request, agent_id=AGENT_ID, record_id=r["record_id"], captured_at=r["captured_at"], operator_id=r.get("operator_id"),
-            unit_scope="order", refs={"order_id": r["order_id"]}, checks=checks, outcome=pack_out, model=MODEL_METADATA,
-            inputs=photo_inputs, reason=ai_result.reasoning,
-            payload={"channel": r["channel"], "ai_verdict": ai_result.verdict}
-        )
-        return build_output(record)
-        
-    except Exception as e:
-        checks = [
-            check("items_present", "UNCERTAIN", None, expected=expected_order_lines, observed="Error", detail=str(e), evidence_refs=refs),
-            check("quantities_correct", "UNCERTAIN", None, expected="Match", observed="Error", detail=str(e), evidence_refs=refs),
-            check("no_extra_items", "UNCERTAIN", None, expected="Match", observed="Error", detail=str(e), evidence_refs=refs)
-        ]
-        record = build_record(
-            request, agent_id=AGENT_ID, record_id=r["record_id"], captured_at=r["captured_at"], operator_id=r.get("operator_id"),
-            unit_scope="order", refs={"order_id": r["order_id"]}, checks=checks, outcome="UNCERTAIN", model=MODEL_METADATA,
-            inputs=photo_inputs, reason=f"API or processing failure: {str(e)}",
-            payload={"channel": r["channel"]}
+            request, agent_id=AGENT_ID, record_id=rid, captured_at=binding["captured_at"], client_id=binding.get("client_id"),
+            unit_scope="order", refs=binding["refs"], checks=checks, outcome=pack_out, model=model_metadata(stats),
+            inputs=photo_inputs, reason="Deterministic comparison of trusted order and observed contents",
+            payload={**payload(request, binding, stats, fingerprint), "observations": ai_result}
         )
         return build_output(record)
 
-app = make_app(STAGE, handle)
+    except Exception:
+        return pending("provider_failure")
+
+def handle(request: dict) -> dict:
+    return runtime.run(STAGE, request, POLICY, assess)
+
+app = runtime.make_app(STAGE, handle)

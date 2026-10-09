@@ -49,3 +49,23 @@ curl -s -X POST localhost:8100/workflows -H 'content-type: application/json' \
 ## Deliberately not here
 
 Concurrency across workflows, a database, a human-review queue and UI, authentication on the API, retry backoff, parallel or looping flows. Add what your design needs and say so in `ARCHITECTURE.md`.
+
+
+## Tenant authorization and reassessment
+
+Workflow API resources require trusted authentication middleware to supply
+`orchestration.api.Principal(org_id, actor)` as ASGI scope key
+`orchestration.principal`. Direct requests fail closed with 401 until that boundary
+is configured; sending `X-Org-ID` or an actor in JSON does not authenticate anyone.
+Use an authenticated server-side integration, not a client-selectable scope.
+The CLI is a privileged local operator tool. Storage callers handling untrusted
+requests must use `store.for_org(authorized_org, actor=authorized_actor)`.
+
+An upstream override can requeue dependent completed stages. Its response may
+therefore be IN_PROGRESS/INCOMPLETE or RECOVERY_REQUIRED rather than immediately
+CLEAN. Resume to obtain fresh dependent decisions. Old evidence and override
+history remain available; stale decisions are excluded from the active outcome.
+Agents must return a fresh record ID for a new request/attempt if content changes.
+
+See `docs/decisions.md` for the P0 enforcement boundaries, existing-schema
+compatibility, local locking behavior and remaining deployment assumptions.

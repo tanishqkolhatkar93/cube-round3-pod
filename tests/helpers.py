@@ -45,7 +45,7 @@ class Flaky:
 
 
 class Mangle:
-    """Wraps the real stub and corrupts its output in one specific way."""
+    """Wraps the real agent and corrupts its output in one specific way."""
 
     def __init__(self, stage, how):
         self.stage, self.how = stage, how
@@ -55,7 +55,7 @@ class Mangle:
         if self.how == "other_tenant":
             out["evidence"]["subject"]["org_id"] = "org_someone_else"
         elif self.how == "tampered":
-            out["evidence"]["checks"] = []          # body changed, hash not
+            out["evidence"]["content_hash"] = "0" * 64  # always corrupt, even pending records
         elif self.how == "wrong_stage":
             out["stage"] = "recovery" if self.stage != "recovery" else "receiving"
         elif self.how == "garbage":

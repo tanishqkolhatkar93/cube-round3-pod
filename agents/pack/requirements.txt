@@ -1,8 +1,2 @@
-streamlit>=1.30.0
-fastapi>=0.110.0
-uvicorn>=0.28.0
-python-multipart>=0.0.9
-pydantic>=2.0.0
-google-genai>=0.1.1
-python-dotenv>=1.0.0
-requests>=2.31.0
+# Use the Pod root dependency policy; no separate SDK version list.
+-r ../../requirements.txt

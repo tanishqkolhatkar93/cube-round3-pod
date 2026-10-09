@@ -46,7 +46,9 @@ class HttpClient:
     def run(self, request: dict, timeout_s: float) -> dict:
         try:
             resp = httpx.post(f"{self.url}/run", json=request, timeout=timeout_s)
-        except httpx.TimeoutException as exc:
+        except httpx.TimeoutException as exc:            # went out, no answer in time
+            if isinstance(exc, httpx.ConnectTimeout):    # could not even connect (dead agent)
+                raise AgentUnavailable(f"{type(exc).__name__}: {exc}") from exc
             raise AgentTimeout(f"{type(exc).__name__}: {exc}") from exc
         except httpx.HTTPError as exc:
             raise AgentUnavailable(f"{type(exc).__name__}: {exc}") from exc
