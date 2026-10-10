@@ -8,6 +8,7 @@ import threading
 from urllib.parse import quote
 
 from .common import Failure, fields, number, text
+from agents.readiness import provider_http_error, PROVIDER_HTTP_ERRORS
 from .core.rulepacks.organizer import observation_fields
 
 PROMPT_VERSION = "prep-facts-1"
@@ -31,8 +32,11 @@ def validate_selection(config):
     if config is None:
         return
     fields(config, ("kind", "model", "api_key_env", "deadline_s"))
-    if config["kind"] != "gemini":
+    if config["kind"] not in ('gemini', 'groq'):
         raise ValueError("unsupported provider")
+    if config['kind'] == 'groq':
+        from agents.groq_provider import validate_selection as validate_groq
+        validate_groq(config)
     text(config["model"])
     text(config["api_key_env"])
     number(config["deadline_s"], 0.01, 20)
@@ -51,7 +55,7 @@ def _gemini_worker(connection, model, key, deadline_s, images, names):
                   "contents": [{"role": "user", "parts": parts}],
                   "generationConfig": {"temperature": 0, "maxOutputTokens": 8192, "responseMimeType": "application/json"}})
         if response.status_code != 200:
-            connection.send({"error": "provider_unavailable"})
+            connection.send({"error": provider_http_error(response.status_code)})
         else:
             body = response.json()
             candidate = body.get("candidates", [{}])[0]
@@ -109,7 +113,26 @@ class GeminiProvider:
 def make_provider(config):
     if config is None:
         raise Failure("provider_unconfigured")
+    if config['kind'] == 'groq':
+        return GroqProvider(config)
     return GeminiProvider(config)
+
+
+class GroqProvider:
+    def __init__(self, config):
+        from agents.groq_provider import key_for
+        key_for(config)
+        self.config = config
+        self.stats = {'calls': 0, 'attempts': []}
+
+    def observe(self, images, criteria, deadline_s):
+        from agents.groq_provider import invoke as groq_invoke
+        from .common import canonical
+        data, error = groq_invoke({**self.config, 'deadline_s': deadline_s}, PROMPT,
+            {'fields': sorted(observation_fields(criteria))}, images, self.stats)
+        if error:
+            raise Failure(error)
+        return {'text': canonical(data), 'model_version': self.stats['version']}
 
 
 def invoke(provider, images, criteria, deadline_s):
@@ -130,7 +153,7 @@ own cancellation. Timeout output is durable, preventing same-request retries.
     except queue.Empty:
         raise Failure("provider_timeout") from None
     if not ok:
-        if isinstance(value, Failure) and value.code in ("provider_timeout", "provider_unavailable", "provider_rejected", "invalid_response"):
+        if isinstance(value, Failure) and value.code in {"provider_timeout", "provider_unavailable", "provider_rejected", "invalid_response", 'invalid_provider_response', 'provider_image_limit_exceeded', 'provider_request_too_large', 'provider_configuration_invalid', *PROVIDER_HTTP_ERRORS}:
             raise value
         raise Failure("provider_failure") from None
     try:

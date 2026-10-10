@@ -10,6 +10,7 @@ from typing import Any
 import httpx
 from agents.prep.common import strict_json, canonical
 from agents import bounded_provider
+from agents.readiness import provider_http_error, PROVIDER_HTTP_ERRORS
 
 
 GEMINI_API_BASE = "https://generativelanguage.googleapis.com/v1beta/models"
@@ -174,6 +175,8 @@ Fee lines and their evidence:
         if not isinstance(result.get('results'),list):raise ValueError()
     except httpx.TimeoutException:
         raise GeminiError('provider_timeout',calls=calls) from None
+    except httpx.HTTPStatusError as exc:
+        raise GeminiError(provider_http_error(exc.response.status_code), calls=calls) from None
     except (ValueError,TypeError,KeyError,GeminiError):
         raise GeminiError('invalid_provider_response',calls=calls) from None
     except Exception:
@@ -201,7 +204,7 @@ def worker(connection,selection,key,prompt,payload,images):
             selection=selection,key=key,report=connection.send)
         result={'data':{'results':batch['results']}}
     except GeminiError as exc:
-        result={'error':str(exc) if str(exc) in ('provider_timeout','provider_cleanup_failure','invalid_provider_response','provider_unavailable') else 'provider_unavailable'}
+        result={'error':str(exc) if str(exc) in {'provider_timeout','provider_cleanup_failure','invalid_provider_response','provider_unavailable', *PROVIDER_HTTP_ERRORS} else 'provider_unavailable'}
     except Exception:
         result={'error':'provider_unavailable'}
     try:connection.send({'event':'result',**result})
@@ -209,4 +212,12 @@ def worker(connection,selection,key,prompt,payload,images):
 
 
 def invoke(selection,prompt,payload,images,stats):
+    if selection and selection.get('kind') == 'groq':
+        from agents.groq_provider import invoke as groq_invoke
+        prompt = ('Interpret each supplied fee line using only its registered policy and eligible evidence. '
+                  'Return {"results":[{"line_id":"supplied line ID","position":"SUPPORTS or CONTRADICTS or SILENT",'
+                  '"confidence":0.0,"reason":"grounded explanation","evidence_record_ids":[]}]}. '
+                  'Return exactly one entry per line. Cite only supplied evidence record IDs. '
+                  'Missing, conflicting or insufficient evidence must be SILENT; never invent a claim.')
+        return groq_invoke(selection, prompt, payload, [], stats)
     return bounded_provider.invoke(selection,prompt,payload,images,stats,worker_target=worker)

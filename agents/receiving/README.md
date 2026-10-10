@@ -14,6 +14,11 @@ previous_evidence because it is the first stage. /health reports process readine
 and provider_configured separately; it does not make a provider call.
 
 Configure these server-side environment variables before starting:
+- RECEIVING_PROVIDER: `gemini` (default) or explicitly `groq`. Groq uses
+  RECEIVING_GROQ_MODEL=`qwen/qwen3.8-27b`, GROQ_API_KEY_ENV selecting exactly one
+  of GROQ_API_KEY/_2/_3/_4, and RECEIVING_TIMEOUT_S at most 20. It preserves the
+  image gate, per-image extraction and deterministic checks, with no fallback.
+  See [deployment readiness](../../docs/DEPLOYMENT-READINESS.md).
 - INPUT_DIR: trusted input root (default data/input).
 - RECEIVING_CAPTURE_REGISTRY: trusted JSON file described below. Its default is
   fixtures/captures.json, registering the 23 staged synthetic demonstration captures.

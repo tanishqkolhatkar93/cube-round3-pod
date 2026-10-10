@@ -1,5 +1,5 @@
 """Explicit provider selection and secret-safe Round 3 diagnostics; no decision policy."""
-from dataclasses import asdict, replace
+from dataclasses import asdict
 import json
 import os
 import re
@@ -122,8 +122,15 @@ def select_provider(selection, *, provider=None):
         else:
             if name == "gemini":
                 factory = GeminiVisionProvider
-                config = replace(GeminiConfig.from_env(), **settings)
-                config = replace(config, api_key=configured_api_key())
+                # Validate the effective selection once. Another manager's global
+                # model (or an unselected key) must not veto an explicit override.
+                config = GeminiConfig(
+                    api_key=configured_api_key(),
+                    model=settings.get('model', os.environ.get('GEMINI_MODEL', 'gemini-3.8-flash')),
+                    timeout_seconds=(settings['timeout_seconds'] if 'timeout_seconds' in settings
+                                     else float(os.environ.get('GEMINI_TIMEOUT_SECONDS', '90'))),
+                    free_tier_confirmed=settings.get('free_tier_confirmed',
+                                                     os.environ.get('GEMINI_FREE_TIER_CONFIRMED') == '1'))
             else:
                 factory = GroqVisionProvider
                 key_env = os.environ.get("GROQ_API_KEY_ENV", "GROQ_API_KEY")

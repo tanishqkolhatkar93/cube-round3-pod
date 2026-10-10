@@ -13,7 +13,7 @@ from shared.utils.records import (build_output, build_record, check,
 from .safety import Rejected, Ledger, digest, validate_request, safe_ref as _safe_rel, resolve_captures, record_id as _record_id
 from .core.failures import classify
 
-from .core.config import CFG, DATA_INPUT
+from .core.config import CFG, DATA_INPUT, provider_selection
 from .core.engine import run_engine
 from .core.extraction.service import PROMPT_VERSION
 from .core.models import POLineItem, CheckContext
@@ -193,9 +193,9 @@ def _gate_rejected_checks(refs):
 
 def _model_info(stats):
     ids = sorted(set(stats.get("model_ids", [])))
-    return {"name": "gemini" if ids or stats["calls"] else "none",
+    return {"name": CFG.provider if ids or stats["calls"] else "none",
             "version": ",".join(ids) if ids else "unavailable",
-            "provider": "google" if ids or stats["calls"] else None,
+            "provider": ("groq" if CFG.provider == 'groq' else "google") if ids or stats["calls"] else None,
             "prompt_version": PROMPT_VERSION, "calls":stats["calls"], "cost_usd":None}
 
 
@@ -213,9 +213,10 @@ def handle(request):
     except (ValueError, TypeError, KeyError):
         raise Rejected("invalid_trusted_specification", 503) from None
     found, issues, capture_snapshot = _resolve_inputs(request, request["subject"]["subject_id"])
+    selection = ({'provider_selection': provider_selection()} if CFG.provider == 'groq' else
+                 {'model': CFG.gemini_model, 'fallbacks': CFG.gemini_fallback_models})
     fingerprint = digest({"request":request, "spec":spec, "captures":capture_snapshot,
-        "policy":"receiving-safety-v1","model":CFG.gemini_model,
-        "fallbacks":CFG.gemini_fallback_models,"prompt":PROMPT_VERSION})
+        "policy":"receiving-safety-v1", **selection, "prompt":PROMPT_VERSION})
     state = Path(os.environ.get("RECEIVING_STATE_DIR", Path(__file__).resolve().parents[2] / "out" / "receiving"))
     def produce():
         try:
@@ -242,7 +243,7 @@ def _execute(request, unit, source, spec, found, issues):
     usable = [p for p in provs if (p.quality or {}).get("verdict") != "REJECTED"]
 
     if errors:
-        return _pending(request,code=errors[0]["code"],message="Required image extraction did not complete",
+        return _pending(request,code=errors[0]["code"],message=f"Required image extraction did not complete ({errors[0]['code']})",
                         spec=spec,inputs=inputs_list,stats=stats,issues=errors)
     if len(usable) != len(provs) and usable:
         return _pending(request,code="image_quality_rejected",message="Required capture rejected by quality gate",
@@ -265,7 +266,7 @@ def _execute(request, unit, source, spec, found, issues):
                          units_per_carton_ordered=spec.get("units_per_carton_ordered"),
                          qty_ordered=spec["qty_ordered"])
         ctx = CheckContext(po=po, observations=usable,
-                           model_version=f"gemini:{_model_info(stats)['version']}")
+                           model_version=f"{CFG.provider}:{_model_info(stats)['version']}")
         ours = [fn(ctx) for fn in CHECKS.values()]
         by = {r.check_key: r for r in ours}
         summary = build_receiving_summary(ours, po)
@@ -322,8 +323,19 @@ app = FastAPI(title="Receiving Manager")
 
 @app.get("/health")
 def health():
+    configured = bool(CFG.gemini_api_key)
+    code = 'provider_configuration_required'
+    if CFG.provider == 'groq':
+        from agents.groq_provider import key_for
+        try:
+            key_for(provider_selection())
+            configured = True
+        except Exception:
+            configured = False
     return {"status":"ok","stage":STAGE,"version":VERSION,"contract_version":"1.0",
-            "provider_configured":bool(CFG.gemini_api_key)}
+            "provider": CFG.provider, "provider_configured":configured,
+            "provider_status":"not_verified" if configured else code,
+            "source_validation":"per_request", "remote_provider_validation":"not_run"}
 
 @app.post("/run")
 async def run(request: Request):

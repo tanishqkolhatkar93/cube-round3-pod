@@ -14,6 +14,7 @@ from .core.rulepacks.organizer import RULE_VERSION, SOURCE_COMMIT, SOURCE_URL
 from .input_resolver import Resolver, local_path
 from .providers import PROMPT_HASH, PROMPT_VERSION, invoke, make_provider, validate_selection
 from .request_store import RequestStore
+from agents.readiness import PROVIDER_HTTP_ERRORS
 
 AGENT_ID = "pod14-prep-manager@1"
 
@@ -73,6 +74,7 @@ class Adapter:
         model = {"name": config["model"] if config else "none", "version": "unknown",
                  "provider": config["kind"] if config else None, "prompt_version": PROMPT_VERSION, "calls": 0}
         code, batch, raw_hash = resolved.failure, None, None
+        provider = None
         try:
             if code is None:
                 provider = self.provider_factory(config)
@@ -83,9 +85,11 @@ class Adapter:
                 batch = parse(response["text"], resolved.criteria, resolved.images)
         except Failure as exc:
             code = exc.code if exc.code in {"provider_unconfigured", "provider_timeout", "provider_unavailable",
-                                            "provider_rejected", "provider_failure", "invalid_response", "invalid_observation"} else "provider_failure"
+                                            "provider_rejected", "provider_failure", "invalid_response", "invalid_observation", 'invalid_provider_response', 'provider_image_limit_exceeded', 'provider_request_too_large', 'provider_configuration_invalid', *PROVIDER_HTTP_ERRORS} else "provider_failure"
         except Exception:
             code = "prep_exception"
+        if hasattr(provider, 'stats'):
+            model['calls'] = provider.stats['calls']
         if code:
             checks = [check("inspection_available", "UNCERTAIN", None, detail=code,
                             uncertain_reason="model_error" if code.startswith("provider") else "insufficient_evidence")]

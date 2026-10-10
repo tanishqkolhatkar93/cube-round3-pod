@@ -9,6 +9,7 @@ from starlette.concurrency import run_in_threadpool
 
 from .adapter import Adapter
 from .request_store import Rejected
+from agents.readiness import configuration_code, checks_not_run
 
 
 def configured_adapter():
@@ -16,9 +17,14 @@ def configured_adapter():
     state = os.environ.get("RETURNS_STATE_DIR")
     if not filename or not state:
         raise RuntimeError("returns_configuration_required")
-    path = Path(filename).resolve()
-    config = json.loads(path.read_text(encoding="utf-8"))
-    return Adapter(config, path.parent, Path(state).resolve())
+    try:
+        path = Path(filename).resolve()
+        config = json.loads(path.read_text(encoding="utf-8"))
+        return Adapter(config, path.parent, Path(state).resolve())
+    except Rejected:
+        raise
+    except Exception:
+        raise RuntimeError('returns_configuration_invalid') from None
 
 
 def handle(request):
@@ -30,12 +36,17 @@ app = FastAPI(title="Returns Manager")
 
 @app.get("/health")
 def health():
+    diagnostics = checks_not_run()
     try:
-        configured_adapter()
+        adapter = configured_adapter()
         status = "ok"
-    except Exception:
+        live = adapter.config['mode'] == 'existing' and any(
+            b['inspection'] == 'live' for b in adapter.config['bindings'])
+        diagnostics['provider_status'] = 'not_verified' if live else 'not_required'
+    except Exception as exc:
         status = "degraded"
-    return {"status": status, "stage": "returns", "version": "1", "contract_version": "1.0"}
+        diagnostics['error'] = configuration_code(exc, 'returns_configuration_invalid')
+    return {"status": status, "stage": "returns", "version": "1", "contract_version": "1.0", **diagnostics}
 
 
 @app.post("/run")

@@ -23,6 +23,7 @@ from agents.prep.request_store import RequestStore
 from shared.utils.hashing import verify
 from shared.utils.schema import validate
 from shared.utils.records import build_record, build_output, error_obj, rollup
+from agents.readiness import configuration_code, provider_readiness, checks_not_run
 
 
 def validate_order_lines(value):
@@ -73,7 +74,12 @@ def configuration(stage):
                 text(b.get('refs',{}).get('order_id'))
         selection = config.get('provider')
         if selection is not None:
-            fields(selection, ('model', 'api_key_env', 'deadline_s'))
+            fields(selection, ('model', 'api_key_env', 'deadline_s'), ('kind',))
+            if selection.get('kind', 'gemini') not in ('gemini', 'groq'):
+                raise ValueError()
+            if selection.get('kind') == 'groq':
+                from agents.groq_provider import validate_selection
+                validate_selection(selection)
             text(selection['model']); text(selection['api_key_env'])
             if type(selection['deadline_s']) not in (int, float) or not 0.05 <= selection['deadline_s'] <= 20:
                 raise ValueError()
@@ -274,12 +280,15 @@ def make_app(stage, handle):
     app = FastAPI(title=stage.title()+' Manager')
     @app.get('/health')
     def health():
+        diagnostics = checks_not_run()
         try:
-            configuration(stage)
+            config, _, _ = configuration(stage)
+            diagnostics.update(provider_readiness(config.get('provider'), required=stage == 'pack'))
             status = 'ok'
-        except Exception:
+        except Exception as exc:
             status = 'degraded'
-        return {'status': status, 'stage': stage, 'version': '2', 'contract_version': '1.0'}
+            diagnostics['error'] = configuration_code(exc, 'invalid_configuration')
+        return {'status': status, 'stage': stage, 'version': '2', 'contract_version': '1.0', **diagnostics}
     @app.post('/run')
     async def run_http(request: Request):
         try:

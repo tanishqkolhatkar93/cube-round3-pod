@@ -45,7 +45,11 @@ class Adapter:
             if self.config.get("allow_fixture"):
                 raise Rejected("live_inspection_cannot_use_fixtures")
             self.provider, self.provider_snapshot = select_provider(provider_config, provider=provider)
-        self.requests = RequestStore(self.state_dir / "requests.sqlite3")
+
+    @property
+    def requests(self):
+        # Health/configuration inspection must not create a runtime database.
+        return RequestStore(self.state_dir / "requests.sqlite3")
 
     def handle(self, request):
         try:

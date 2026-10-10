@@ -8,6 +8,7 @@ from starlette.concurrency import run_in_threadpool
 
 from .adapter import Adapter
 from .common import Rejected, strict_json
+from agents.readiness import configuration_code, provider_readiness, checks_not_run
 
 
 def configured_adapter():
@@ -33,12 +34,16 @@ app = FastAPI(title="Pod 14 Prep Manager", version="1")
 
 @app.get("/health")
 def health():
+    diagnostics = checks_not_run()
     try:
         configured_adapter()
         status = "ok"
-    except Exception:
+        config = strict_json(Path(os.environ['PREP_CONFIG']).read_text(encoding='utf-8'))
+        diagnostics.update(provider_readiness(config.get('provider')))
+    except Exception as exc:
         status = "degraded"
-    return {"status": status, "stage": "prep", "version": "1", "contract_version": "1.0"}
+        diagnostics['error'] = configuration_code(exc, 'prep_configuration_invalid')
+    return {"status": status, "stage": "prep", "version": "1", "contract_version": "1.0", **diagnostics}
 
 
 @app.post("/run")

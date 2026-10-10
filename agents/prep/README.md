@@ -88,7 +88,11 @@ a provider. Symlinks, junctions, absolute/UNC/drive/encoded/traversal paths fail
 
 ## Provider and rules
 
-The sole production provider is explicit opt-in Gemini. No API key is read until
+Production providers are explicit opt-in Gemini or Groq (`provider.kind`). Groq
+uses `qwen/qwen3.8-27b`, one selected `api_key_env` from GROQ_API_KEY/_2/_3/_4,
+and at most three registered images per batch. Larger sets fail before inference;
+no image is dropped. See [deployment settings](../../docs/DEPLOYMENT-READINESS.md).
+No API key is read until
 request/capture/criteria/upstream validation finishes. Missing key produces a
 canonical pending record. One attempt is made; no provider fallback or hidden
 retry. A spawned worker is terminated on deadline (maximum configured 20 s).

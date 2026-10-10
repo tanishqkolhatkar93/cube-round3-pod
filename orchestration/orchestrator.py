@@ -229,7 +229,8 @@ def _run_stage(wf: dict, sr: dict, idx: int, opts: dict, store, client) -> dict 
             err = error_obj("agent_rejected", str(exc), retryable=False, stage=stage)
             break
         except Exception as exc:  # an agent bug must not take the orchestrator down
-            err = error_obj("agent_exception", f"{type(exc).__name__}: {exc}", retryable=False, stage=stage)
+            from agents.readiness import configuration_code
+            err = error_obj("agent_exception", configuration_code(exc, "agent_execution_failed"), retryable=False, stage=stage)
             break
         if sr["attempts"] <= int(opts["retries"]):
             _log(wf, "retry", stage, err["message"])

@@ -6,6 +6,12 @@ There is no sample fee CSV fallback. Set `RECOVERY_CONFIG` and
 `kind: document` entries pointing to CSV or JSON reports. Configuration/state/source
 storage and internal service access must be protected by the deployment.
 
+Provider kind defaults to gemini. Explicit groq uses model qwen/qwen3.8-27b,
+api_key_env selecting GROQ_API_KEY/_2/_3/_4 and deadline_s at most 20. Only
+unresolved eligible fee lines with registered policies reach the model;
+deterministic decisions need no key. No rotation or fallback is used. See
+[deployment readiness](../../docs/DEPLOYMENT-READINESS.md).
+
 ## Report input contract
 
 Each registered JSON document has `org_id`, `subject_id`, `workflow_id`,
@@ -40,7 +46,7 @@ measurement format; no tariff thresholds are invented.
 
 Other fees require an operator-owned `fee_policies` mapping of charge type to
 `{version, text}`. Without a registered policy or eligible evidence they remain
-SILENT. All unresolved eligible lines are sent in ONE batched Gemini call using
+SILENT. All unresolved eligible lines are sent in ONE batched selected-provider call using
 the owner REST interpreter inside the common killable transport (at most 20 seconds, no retries). Every response
 must cover exactly those lines and cite eligible records. Invalid responses or
 provider/cleanup failures produce pending evidence with zero claimable amount

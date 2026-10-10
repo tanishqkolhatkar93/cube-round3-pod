@@ -14,6 +14,7 @@ No client header or body value establishes that identity. Unconfigured access fa
 from __future__ import annotations
 
 import os
+import re
 import secrets
 import threading
 import time
@@ -72,7 +73,10 @@ def health() -> dict:
                 "owner": manifest.get("owner"),
             }
     ok = all(a["status"] == "ok" for a in agents.values())
-    return {"status": "ok" if ok else "degraded", "flow": load_flow(FLOW)["flow_id"], "agents": agents}
+    revision = os.environ.get('RENDER_GIT_COMMIT', '')
+    return {"status": "ok" if ok else "degraded", "flow": load_flow(FLOW)["flow_id"], "agents": agents,
+            "revision": revision if re.fullmatch(r'[a-fA-F0-9]{40}', revision) else None,
+            "readiness_scope": "configuration_only; sources validated per request; providers not contacted"}
 
 
 @dataclass(frozen=True)

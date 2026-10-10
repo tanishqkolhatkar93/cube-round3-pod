@@ -23,7 +23,9 @@ def run_engine(images):
                     errors.append({"image_id": image_id, "code": code})
                     if code in {"provider_authentication_failed", "provider_rate_limited",
                                 "provider_overloaded", "provider_model_unavailable",
-                                "provider_request_rejected", "provider_http_error"}:
+                                "provider_request_rejected", "provider_http_error",
+                                "provider_configuration_required", "provider_initialization_failed",
+                                "provider_unconfigured", "provider_configuration_invalid"}:
                         # The remaining images cannot repair this provider rejection.
                         # Preserve prior work and return incomplete instead of retrying.
                         break

@@ -5,7 +5,7 @@ import json
 import sqlite3
 import time
 from PIL import Image, ImageOps
-from ..config import CFG
+from ..config import CFG, provider_selection
 from ..models import ImageObservation, ObsProvenance
 from ..quality import assess_quality
 from ..failures import Failure
@@ -52,7 +52,9 @@ class ExtractionService:
                                  quality=quality, barcodes=barcodes), "quality-gate-rejected"
         # Same-host transaction serializes misses and atomically publishes parsed JSON.
         CFG.cache_dir.mkdir(parents=True, exist_ok=True)
-        key = hashlib.sha256(json.dumps([CFG.gemini_model, CFG.gemini_fallback_models,
+        selection = ([provider_selection()] if CFG.provider == 'groq' else
+                     [CFG.gemini_model, CFG.gemini_fallback_models])
+        key = hashlib.sha256(json.dumps([*selection,
              PROMPT_VERSION, load_prompt(), hashlib.sha256(processed).hexdigest()]).encode()).hexdigest()
         with sqlite3.connect(CFG.cache_dir / "observations.sqlite3", timeout=max(.001, deadline-time.monotonic()), isolation_level=None) as db:
             db.execute("CREATE TABLE IF NOT EXISTS observations (identity TEXT PRIMARY KEY, body TEXT NOT NULL)")
@@ -73,8 +75,12 @@ class ExtractionService:
                 if time.monotonic() >= deadline:
                     raise Failure("agent_timeout")
                 if self.provider is None:
-                    from .gemini import GeminiProvider
-                    self.provider = GeminiProvider()
+                    if CFG.provider == 'groq':
+                        from .groq import GroqProvider
+                        self.provider = GroqProvider()
+                    else:
+                        from .gemini import GeminiProvider
+                        self.provider = GeminiProvider()
                 resp = self.provider.analyze(VisionRequest(image_bytes=processed, prompt_text=load_prompt(),
                     prompt_version=PROMPT_VERSION, schema_model=ImageObservation), stats=stats, deadline=deadline)
                 observation = ImageObservation.model_validate(resp.parsed.model_dump())

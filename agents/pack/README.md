@@ -20,6 +20,12 @@ not authenticate callers. `/health` is degraded if configuration is invalid.
 ## Trusted registration
 
 Config: `version: 1`, `bindings: [...]`, optional `provider`.
+Provider `kind` defaults to `gemini` for existing registrations. Explicit `groq`
+uses model `qwen/qwen3.8-27b`, a selected `api_key_env` from GROQ_API_KEY/_2/_3/_4,
+and `deadline_s` at most 20. At most three views can be submitted to Groq; larger
+registered sets fail before inference rather than dropping views. MFN-only routing,
+order comparisons and evidence validation are unchanged. See
+[deployment readiness](../../docs/DEPLOYMENT-READINESS.md).
 Each binding requires org_id, subject_id, workflow_id, captured_at (actual physical
 capture timestamp with timezone), files, trusted_agents, refs.order_id, and
 order_lines (SKU -> positive integer count). Optional client_id binds client scope.

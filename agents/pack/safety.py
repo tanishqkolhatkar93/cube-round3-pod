@@ -10,6 +10,8 @@ from agents.prep.common import fields, text
 from shared.utils.hashing import seal
 from shared.utils.records import pending_output as shared_pending_output, build_output, check
 from . import vision
+from agents.readiness import provider_http_error
+from google.genai.errors import APIError
 
 PROMPT = vision.PROMPT
 
@@ -25,6 +27,8 @@ def worker(connection, selection, key, prompt, payload, images):
                   'assessment':{'verdict':response.verdict,'checks_performed':response.checks_performed.model_dump()}}}
     except httpx.TimeoutException:
         result = {'error':'provider_timeout'}
+    except APIError as exc:
+        result = {'error': provider_http_error(exc.code)}
     except (ValueError, TypeError, KeyError):
         result = {'error':'invalid_provider_response'}
     except Exception:
@@ -38,6 +42,11 @@ def worker(connection, selection, key, prompt, payload, images):
 
 
 def invoke(selection, prompt, payload, images, stats):
+    if selection and selection.get('kind') == 'groq':
+        from agents.groq_provider import invoke as groq_invoke
+        prompt = prompt.replace('{expected_order_lines}', json.dumps(payload['order_lines']))
+        prompt += '\nRequired JSON schema: ' + json.dumps(vision.AIAnalysisResult.model_json_schema())
+        return groq_invoke(selection, prompt, payload, images, stats)
     return bounded_provider.invoke(selection, prompt, payload, images, stats, worker_target=worker)
 
 
