@@ -29,7 +29,14 @@ def load_manifest(stage: str) -> dict:
 
 class InProcClient:
     def __init__(self, manifest: dict):
-        self.handle = importlib.import_module(manifest["module"]).handle
+        self.module = importlib.import_module(manifest["module"])
+        self.handle = self.module.handle
+
+    def health(self) -> dict:
+        # Use the same configuration check as the agent's HTTP interface.
+        endpoint = next(route.endpoint for route in self.module.app.routes
+                        if getattr(route, "path", None) == "/health" and "GET" in route.methods)
+        return {**endpoint(), "mode": "inproc"}
 
     def run(self, request: dict, timeout_s: float) -> dict:  # timeout is not enforced in-process
         try:
@@ -65,4 +72,6 @@ class HttpClient:
 def client_for(stage: str):
     manifest = load_manifest(stage)
     mode = os.environ.get("ORCH_MODE") or manifest["mode"]
+    if mode not in ("inproc", "http"):
+        raise ValueError("invalid orchestration mode; expected inproc or http")
     return InProcClient(manifest) if mode == "inproc" else HttpClient(manifest)

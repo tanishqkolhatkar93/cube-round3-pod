@@ -1,4 +1,6 @@
 const state = {
+  uploads: [],
+  submitting: false,
   page: "overview",
   workflows: [],
   workflow: null,
@@ -6,6 +8,7 @@ const state = {
   health: null,
   session: null,
   workflowId: null,
+  detailRevision: 0,
   storageAvailable: true,
 };
 
@@ -18,14 +21,16 @@ const node = (tag, className, text) => {
 };
 
 class ApiError extends Error {
-  constructor(message, status) {
+  constructor(message, status, detail = null) {
     super(message);
     this.name = "ApiError";
     this.status = status;
+    this.detail = detail;
   }
 }
 
 async function request(path, options = {}) {
+  const session = state.session;
   const response = await fetch(path, {
     ...options,
     headers: {
@@ -44,11 +49,12 @@ async function request(path, options = {}) {
   }
   if (!response.ok) {
     const detail = payload && typeof payload === "object" ? payload.detail : payload;
-    const message = typeof detail === "string" ? detail : `Request failed (${response.status})`;
-    if (response.status === 401 && (path === "/workflows" || path.startsWith("/workflows/"))) {
+    const message = typeof detail === "string" ? detail
+      : typeof detail?.message === "string" ? detail.message : `Request failed (${response.status})`;
+    if (response.status === 401 && state.session === session && (path === "/workflows" || path.startsWith("/workflows/") || path.startsWith("/uploads") || path === "/image-workflows")) {
       showLogin("Your tenant session has expired. Sign in again to continue.");
     }
-    throw new ApiError(message, response.status);
+    throw new ApiError(message, response.status, detail);
   }
   return payload;
 }
@@ -70,6 +76,8 @@ function setFormMessage(element, message, kind = "") {
 }
 
 function showLogin(message = "") {
+  clearUploads();
+  state.detailRevision += 1;
   state.session = null;
   state.workflows = [];
   state.workflow = null;
@@ -207,18 +215,20 @@ function renderAgentGrid() {
 
 async function loadRecentWorkflows() {
   if (!state.session) return;
+  const session = state.session;
   const ids = recentIds();
   const results = await Promise.all(ids.map(async (id) => {
     try {
       return await request(`/workflows/${encodeURIComponent(id)}`);
     } catch (error) {
       if (error instanceof ApiError && error.status === 404) {
-        dropWorkflow(id);
+        if (state.session === session) dropWorkflow(id);
         return null;
       }
       throw error;
     }
   }));
+  if (state.session !== session) return;
   state.workflows = results.filter(Boolean);
   renderWorkflowTables();
   renderMetrics();
@@ -557,6 +567,9 @@ function renderDetail() {
 async function openWorkflow(workflowId) {
   const id = workflowId.trim();
   if (!id) return;
+  const session = state.session;
+  const revision = ++state.detailRevision;
+  const current = () => state.session === session && state.detailRevision === revision;
   state.workflowId = id;
   state.workflow = null;
   state.bundle = null;
@@ -564,41 +577,55 @@ async function openWorkflow(workflowId) {
   setPage("detail");
   try {
     const evidenceBundle = await request(`/workflows/${encodeURIComponent(id)}/evidence`);
+    if (!current()) return;
     state.bundle = evidenceBundle;
     state.workflow = evidenceBundle.workflow;
     rememberWorkflow(evidenceBundle.workflow.workflow_id);
     await loadRecentWorkflows();
+    if (!current()) return;
     renderDetail();
+    setFormMessage(byId("lookup-message"), "");
   } catch (error) {
+    if (!current()) return;
     byId("workflow-detail").replaceChildren(node("p", "detail-error", `Could not open workflow: ${error.message}`));
-    if (error instanceof ApiError && error.status === 404) setFormMessage(byId("lookup-message"), error.message, "error");
+    setFormMessage(byId("lookup-message"), error.message, "error");
   }
 }
 
 async function refreshWorkflow() {
-  if (!state.workflowId) return;
+  if (!state.workflowId) return false;
+  const session = state.session;
+  const revision = ++state.detailRevision;
+  const current = () => state.session === session && state.detailRevision === revision;
   try {
     const evidenceBundle = await request(`/workflows/${encodeURIComponent(state.workflowId)}/evidence`);
+    if (!current()) return false;
     state.bundle = evidenceBundle;
     state.workflow = evidenceBundle.workflow;
     rememberWorkflow(evidenceBundle.workflow.workflow_id);
     await loadRecentWorkflows();
+    if (!current()) return false;
     renderDetail();
+    return true;
   } catch (error) {
-    showNotice(`Could not refresh workflow: ${error.message}`, "error");
+    if (current()) showNotice(`Could not refresh workflow: ${error.message}`, "error");
+    return false;
   }
 }
 
 async function resumeWorkflow() {
   if (!state.workflowId || !window.confirm("Resume this workflow? The orchestrator may call agents again.")) return;
   const button = byId("resume-button");
+  const session = state.session;
+  const id = state.workflowId;
   if (button) button.disabled = true;
   try {
     await request(`/workflows/${encodeURIComponent(state.workflowId)}/resume`, { method: "POST" });
-    await refreshWorkflow();
-    showNotice("Workflow resumed. Its stage states and evidence have been refreshed.");
+    if (state.session !== session || state.workflowId !== id) return;
+    if (await refreshWorkflow()) showNotice("Workflow resumed. Its stage states and evidence have been refreshed.");
   } catch (error) {
-    showNotice(`Could not resume workflow: ${error.message}`, "error");
+    if (state.session === session && state.workflowId === id) showNotice(`Could not resume workflow: ${error.message}`, "error");
+  } finally {
     if (button) button.disabled = false;
   }
 }
@@ -607,6 +634,8 @@ async function submitOverride(event) {
   event.preventDefault();
   const form = event.currentTarget;
   const recordId = form.dataset.recordId;
+  const session = state.session;
+  const id = state.workflowId;
   if (!window.confirm("Append this override? The original evidence will remain unchanged.")) return;
   const button = form.querySelector('button[type="submit"]');
   button.disabled = true;
@@ -621,40 +650,153 @@ async function submitOverride(event) {
         reason: String(values.get("reason") || "").trim(),
       }),
     });
-    await refreshWorkflow();
-    showNotice(`Override recorded for ${recordId}. The evidence record remains immutable.`);
+    if (state.session !== session || state.workflowId !== id) return;
+    if (await refreshWorkflow()) showNotice(`Override recorded for ${recordId}. The evidence record remains immutable.`);
   } catch (error) {
-    showNotice(`Could not record override: ${error.message}`, "error");
+    if (state.session === session && state.workflowId === id) showNotice(`Could not record override: ${error.message}`, "error");
+  } finally {
     button.disabled = false;
   }
 }
 
-byId("create-form").addEventListener("submit", async (event) => {
+function clearUploads() {
+  state.uploads.forEach(item => URL.revokeObjectURL(item.url));
+  state.uploads = [];
+  byId("upload-list").replaceChildren();
+}
+
+function uploadError(file) {
+  if (!["image/jpeg", "image/png", "image/webp"].includes(file.type)) return "Use JPEG, PNG or WebP images.";
+  if (!file.size || file.size > 10000000) return "Each image must be nonempty and at most 10 MB.";
+  return "";
+}
+
+function renderUploads() {
+  const list = byId("upload-list");
+  list.replaceChildren();
+  state.uploads.forEach((item, index) => {
+    const card = node("div", "upload-card");
+    const preview = node("img", "upload-preview");
+    preview.src = item.url; preview.alt = item.file.name;
+    const fields = node("div", "upload-fields");
+    fields.append(node("strong", "upload-name", item.file.name));
+    const unitLabel = node("label", "field", "Registered unit / order subject ID");
+    const unit = node("input"); unit.value = item.unit; unit.required = true; unit.maxLength = 160;
+    unit.placeholder = "e.g. UNIT-0014";
+    unit.addEventListener("input", () => {
+      item.unit = unit.value.trim(); item.receipt = null; item.status = "Association will be revalidated";
+    });
+    unitLabel.append(unit);
+    fields.append(unitLabel);
+    if (item.needsCaptureRef) {
+      const captureLabel = node("label", "field", "Existing capture reference");
+      const capture = node("input"); capture.value = item.captureRef || ""; capture.maxLength = 512;
+      capture.placeholder = "Reference from the trusted capture record";
+      capture.addEventListener("input", () => { item.captureRef = capture.value.trim(); item.receipt = null; });
+      captureLabel.append(capture, node("small", "", "The bytes match multiple captures. Supply the record reference or have the registration operator correct the bindings, then retry."));
+      fields.append(captureLabel);
+    }
+    const remove = node("button", "text-button", "Remove image"); remove.type = "button";
+    remove.addEventListener("click", () => { if (state.submitting) return; URL.revokeObjectURL(item.url); state.uploads.splice(index, 1); renderUploads(); });
+    fields.append(node("small", "", item.status || "The system will resolve the evidence association"), remove);
+    card.append(preview, fields); list.append(card);
+  });
+}
+
+function addImages(files) {
+  if (state.submitting) return;
+  const errors = [];
+  for (const file of files) {
+    const error = uploadError(file);
+    if (error) { errors.push(`${file.name}: ${error}`); continue; }
+    if (state.uploads.length >= 24) { errors.push("Maximum 24 images per submission."); break; }
+    const last = state.uploads.at(-1);
+    state.uploads.push({file, url: URL.createObjectURL(file), unit: last?.unit || "", receipt: null});
+  }
+  renderUploads();
+  setFormMessage(byId("create-message"), errors.join(" "), errors.length ? "error" : "");
+}
+
+byId("image-picker").addEventListener("change", event => { addImages(event.target.files); event.target.value = ""; });
+byId("upload-drop").addEventListener("dragover", event => { event.preventDefault(); });
+byId("upload-drop").addEventListener("drop", event => { event.preventDefault(); addImages(event.dataTransfer.files); });
+
+async function submitImages(event) {
+  event.preventDefault();
+  const session = state.session;
+  const form = event.currentTarget;
+  if (!session || state.submitting) return;
+  const message = byId("create-message");
+  const values = new FormData(event.currentTarget);
+  if (!state.uploads.length) { setFormMessage(message, "Add at least one image to begin.", "error"); return; }
+  if (state.uploads.some(i => !/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(i.unit)) || !values.get("route") || values.get("returned") === "") {
+    setFormMessage(message, "Confirm each registered subject, fulfilment route and return status. Evidence associations are resolved automatically.", "error"); return;
+  }
+  state.submitting = true;
+  const items = [...state.uploads];
+  const created = [];
+  form.querySelectorAll("input, select, button").forEach(el => { el.disabled = true; });
+  try {
+    for (const [index, item] of items.entries()) {
+      setFormMessage(message, `Uploading and validating image ${index + 1} of ${items.length}…`);
+      try {
+        const captureQuery = item.captureRef ? `&capture_ref=${encodeURIComponent(item.captureRef)}` : "";
+        if (!item.receipt) item.receipt = await request(`/uploads?unit_id=${encodeURIComponent(item.unit)}${captureQuery}`, {
+          method: "PUT", headers: {"Content-Type": item.file.type}, body: item.file,
+          signal: AbortSignal.timeout(60000),
+        });
+      } catch (error) {
+        item.status = `Unresolved: ${error.message}`;
+        if (error.detail?.required_information === "capture_ref") item.needsCaptureRef = true;
+        throw error;
+      }
+      if (state.session !== session) return;
+      item.status = "Upload successful · registered evidence accepted";
+    }
+    const units = [...new Set(items.map(i => i.unit))];
+    for (const unit of units) {
+      setFormMessage(message, `Evidence accepted. Processing ${unit} (${created.length + 1}/${units.length})…`);
+      const workflow = await request("/image-workflows", {method: "POST", signal: AbortSignal.timeout(240000), body: JSON.stringify({
+        unit_id: unit, route: values.get("route"), returned: values.get("returned") === "true",
+        receipts: [...new Set(items.filter(i => i.unit === unit).map(i => i.receipt.receipt_id))],
+      })});
+      if (state.session !== session) return;
+      rememberWorkflow(workflow.workflow_id); created.push(workflow.workflow_id);
+    }
+    clearUploads();
+    setFormMessage(message, `${created.length} workflow(s) initialized. Review recorded outcomes; acceptance is not approval.`, "success");
+    showNotice(`${created.length} workflow(s) available in recent history. Each subject has a separate record.`);
+    await openWorkflow(created[0]);
+  } catch (error) {
+    if (state.session === session) {
+      setFormMessage(message, `${error.message} ${created.length ? `${created.length} workflow(s) already saved in history.` : ""} Retry safely; completed submissions are not rerun.`, "error");
+      renderUploads();
+    }
+  } finally {
+    state.submitting = false;
+    form.querySelectorAll("input, select, button").forEach(el => { el.disabled = false; });
+  }
+}
+byId("create-form").addEventListener("submit", submitImages);
+
+byId("registered-form").addEventListener("submit", async event => {
   event.preventDefault();
   const form = event.currentTarget;
-  const button = byId("create-submit");
-  const values = new FormData(form);
-  const body = {
-    org_id: state.session.org_id,
-    unit_id: String(values.get("unit_id") || "").trim(),
-  };
-  if (values.get("route")) body.route = values.get("route");
-  if (values.get("returned") !== "") body.returned = values.get("returned") === "true";
+  const session = state.session;
+  const button = form.querySelector("button");
+  if (!session || button.disabled) return;
+  const unit = new FormData(form).get("unit_id");
   button.disabled = true;
-  setFormMessage(byId("create-message"), "Starting workflow and waiting for applicable stages…");
+  setFormMessage(byId("registered-message"), "Processing registered evidence…");
   try {
-    const workflow = await request("/workflows", { method: "POST", body: JSON.stringify(body) });
-    rememberWorkflow(workflow.workflow_id);
-    form.reset();
-    form.elements.org_id.value = state.session.org_id;
-    setFormMessage(byId("create-message"), `Workflow ${workflow.workflow_id} was created. Review its current state and evidence.`, "success");
-    await loadRecentWorkflows().catch((error) => showNotice(`Workflow created, but recent workflows could not refresh: ${error.message}`, "error"));
-    await openWorkflow(workflow.workflow_id);
+    const wf = await request("/workflows", {method: "POST", body: JSON.stringify({org_id: session.org_id, unit_id: unit})});
+    if (state.session !== session) return;
+    rememberWorkflow(wf.workflow_id);
+    setFormMessage(byId("registered-message"), "Workflow recorded; review its outcome.");
+    await openWorkflow(wf.workflow_id);
   } catch (error) {
-    setFormMessage(byId("create-message"), `Could not start workflow: ${error.message}`, "error");
-  } finally {
-    button.disabled = false;
-  }
+    if (state.session === session) setFormMessage(byId("registered-message"), error.message, "error");
+  } finally { button.disabled = false; }
 });
 
 byId("lookup-form").addEventListener("submit", async (event) => {

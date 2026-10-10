@@ -26,7 +26,7 @@ from fastapi.staticfiles import StaticFiles
 
 from shared.utils import sample_data
 
-from .clients import HttpClient, client_for, load_manifest
+from .clients import client_for, load_manifest
 from .orchestrator import apply_override, bundle, default_flow_path, flow_stages, load_flow, resume, run_workflow
 from .store import EvidenceConflict, FileStore, StoreIntegrityError, identifier
 
@@ -52,23 +52,24 @@ def same_secret(left: str, right: str) -> bool:
 def health() -> dict:
     agents = {}
     for stage in flow_stages(load_flow(FLOW)):
-        client = client_for(stage)
-        manifest = load_manifest(stage)
+        manifest = {}
         try:
-            report = client.health() if isinstance(client, HttpClient) else {"status": "ok", "mode": "inproc"}
+            manifest = load_manifest(stage)
+            client = client_for(stage)
+            report = client.health()
             agents[stage] = {
                 **report,
                 "agent_id": manifest["agent_id"],
                 "implementation": manifest["implementation"],
                 "owner": manifest["owner"],
             }
-        except Exception as exc:
+        except Exception:
             agents[stage] = {
                 "status": "down",
-                "error": str(exc)[:200],
-                "agent_id": manifest["agent_id"],
-                "implementation": manifest["implementation"],
-                "owner": manifest["owner"],
+                "error": "agent_health_unavailable",
+                "agent_id": manifest.get("agent_id"),
+                "implementation": manifest.get("implementation"),
+                "owner": manifest.get("owner"),
             }
     ok = all(a["status"] == "ok" for a in agents.values())
     return {"status": "ok" if ok else "degraded", "flow": load_flow(FLOW)["flow_id"], "agents": agents}
@@ -211,6 +212,10 @@ def create(body: dict, principal: Principal = Depends(require_principal)) -> dic
         identifier(subject)
     except ValueError:
         raise HTTPException(422, "valid unit_id or subject_id required") from None
+    if "route" in body and body["route"] not in ("fba", "mfn", "unknown"):
+        raise HTTPException(422, "route must be fba, mfn or unknown")
+    if "returned" in body and type(body["returned"]) is not bool:
+        raise HTTPException(422, "returned must be a boolean")
     case = {"org_id": org, "unit_id": subject, "route": body.get("route") or sample_data.route(subject, org),
             "returned": body.get("returned", sample_data.has("returns", subject, org))}
     return run_workflow(case, load_flow(FLOW), STORE.for_org(org, actor=principal.actor))
@@ -256,6 +261,56 @@ def override(workflow_id: str, body: dict, principal: Principal = Depends(requir
                               reason=body.get("reason", ""), new_outcome=body.get("new_outcome"))
     except ValueError:
         raise HTTPException(422, "invalid override") from None
+
+
+@app.put("/uploads")
+async def upload_image(request: Request, unit_id: str, capture_ref: str | None = None,
+                       principal: Principal = Depends(require_principal)) -> dict:
+    from .uploads import MAX_BYTES, save_upload
+    from starlette.concurrency import run_in_threadpool
+    raw = bytearray()
+    async for chunk in request.stream():
+        raw.extend(chunk)
+        if len(raw) > MAX_BYTES:
+            raise HTTPException(413, "Image exceeds 10 MB.")
+    try:
+        return await run_in_threadpool(save_upload, STORE, principal.org_id, unit_id,
+                                      bytes(raw), request.headers.get("content-type", ""), capture_ref)
+    except OSError:
+        raise HTTPException(503, "Evidence storage unavailable; retry the upload.") from None
+
+
+@app.post("/image-workflows")
+def create_image_workflow(body: dict, principal: Principal = Depends(require_principal)) -> dict:
+    from .uploads import load_receipts, registered_inputs
+    from .orchestrator import applies, workflow_id_for
+    unit = body.get("unit_id")
+    try:
+        identifier(unit)
+    except ValueError:
+        raise HTTPException(422, "A registered subject ID is required.") from None
+    if body.get("route") not in ("fba", "mfn", "unknown") or type(body.get("returned")) is not bool:
+        raise HTTPException(422, "Choose a fulfilment route and return status.")
+    case = {"org_id": principal.org_id, "unit_id": unit, "route": body["route"], "returned": body["returned"]}
+    store = STORE.for_org(principal.org_id, actor=principal.actor)
+    with store.transaction():
+        inputs = load_receipts(STORE, principal.org_id, unit, body.get("receipts"))
+        flow = load_flow(FLOW)
+        applicable = {s["stage"] for s in flow["steps"] if applies(s, case)[0]}
+        if not set(inputs) <= applicable:
+            raise HTTPException(422, "Image stage conflicts with the configured workflow route or return status.")
+        for stage in applicable - set(inputs):
+            try:
+                inputs[stage] = registered_inputs(principal.org_id, unit, stage)
+            except HTTPException:
+                inputs[stage] = []
+        case.update(upload_inputs=inputs, upload_receipts=sorted(body["receipts"]))
+        existing = store.load_workflow(workflow_id_for(case))
+        if existing:
+            if any(existing["context"].get(k) != case[k] for k in ("route", "returned", "upload_receipts")):
+                raise HTTPException(409, "A different workflow already exists for this subject. Open it to review or resume.")
+            return existing  # Retrying a submission never reruns managers.
+        return run_workflow(case, flow, store)
 
 
 app.mount("/", StaticFiles(directory=FRONTEND_DIR, html=True), name="frontend")

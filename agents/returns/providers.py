@@ -1,8 +1,10 @@
 """Explicit provider selection and secret-safe Round 3 diagnostics; no decision policy."""
 from dataclasses import asdict, replace
 import json
+import os
 import re
 import threading
+from agents.gemini_credentials import configured_api_key
 
 from .core.returns_manager.domain import ValidationError
 from .core.returns_manager.gemini import GeminiConfig, GeminiVisionProvider
@@ -118,9 +120,17 @@ def select_provider(selection, *, provider=None):
             config = OllamaConfig(**settings)
             factory = OllamaVisionProvider
         else:
-            config_type, factory = ((GeminiConfig, GeminiVisionProvider) if name == "gemini"
-                                    else (GroqConfig, GroqVisionProvider))
-            config = replace(config_type.from_env(), **settings)
+            if name == "gemini":
+                factory = GeminiVisionProvider
+                config = replace(GeminiConfig.from_env(), **settings)
+                config = replace(config, api_key=configured_api_key())
+            else:
+                factory = GroqVisionProvider
+                key_env = os.environ.get("GROQ_API_KEY_ENV", "GROQ_API_KEY")
+                if key_env not in {"GROQ_API_KEY", "GROQ_API_KEY_2", "GROQ_API_KEY_3", "GROQ_API_KEY_4"}:
+                    raise Rejected("groq_invalid_key_selector")
+                # Select exactly one process credential; never retry another key.
+                config = GroqConfig(api_key=os.environ.get(key_env, ""), **settings)
             if not config.api_key:
                 raise Rejected(name + "_key_missing")
             if name == "gemini" and not config.free_tier_confirmed:

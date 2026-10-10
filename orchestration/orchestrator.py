@@ -209,7 +209,8 @@ def _run_stage(wf: dict, sr: dict, idx: int, opts: dict, store, client) -> dict 
         "schema_version": "1.0", "request_id": base if sr["runs"] == 1 else f"{base}:r{sr['runs']}",
         "workflow_id": wf["workflow_id"], "stage": stage,
         "subject": {"org_id": wf["org_id"], "subject_id": wf["subject_id"], "route": wf["context"].get("route", "unknown")},
-        "inputs": discover_inputs(wf["subject_id"], stage),
+        "inputs": (wf["context"]["upload_inputs"].get(stage, []) if "upload_inputs" in wf["context"]
+                   else discover_inputs(wf["subject_id"], stage)),
         "previous_evidence": _previous_evidence(wf, idx, store),
         "context": {"overrides": wf["overrides"], "case": wf["context"]},
     }

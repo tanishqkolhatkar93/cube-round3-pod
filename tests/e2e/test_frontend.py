@@ -8,6 +8,8 @@ from orchestration.api import SESSION_COOKIE, app
 def test_operations_console_and_tenant_sessions(monkeypatch):
     monkeypatch.setenv("ORG_ALPHA_TOKEN", "alpha-test-token")
     monkeypatch.setenv("ORG_BRAVO_TOKEN", "bravo-test-token")
+    monkeypatch.setenv("ORCH_MODE", "inproc")
+    monkeypatch.delenv("PREP_CONFIG", raising=False)
 
     async def check_routes():
         transport = httpx.ASGITransport(app=app)
@@ -55,10 +57,14 @@ def test_operations_console_and_tenant_sessions(monkeypatch):
 
         assert page.status_code == 200
         assert "CUBE Operations" in page.text
-        assert "Five agent managers" in page.text
+        assert "Processing services" in page.text
+        assert "Upload your images. The system will determine the appropriate workflow." in page.text
+        assert "Capture stage" not in script.text
+        assert "&stage=" not in script.text
         assert script.status_code == 200 and "async function request" in script.text
         assert stylesheet.status_code == 200 and "prefers-reduced-motion" in stylesheet.text
-        assert health.status_code == 200 and health.json()["status"] == "ok"
+        assert health.status_code == 200 and health.json()["status"] == "degraded"
+        assert health.json()["agents"]["prep"]["status"] == "degraded"
         assert set(health.json()["agents"]) == {"receiving", "prep", "pack", "returns", "recovery"}
         assert all(agent["agent_id"] for agent in health.json()["agents"].values())
         assert anonymous_session.status_code == 200 and not anonymous_session.json()["authenticated"]

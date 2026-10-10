@@ -6,7 +6,7 @@
     <meta name="color-scheme" content="light">
     <title>CUBE Operations</title>
     <link rel="stylesheet" href="/styles.css">
-    <script src="/app.js" defer></script>
+    <script type="module" src="/app.js"></script>
   </head>
   <body>
     <section class="login-screen" id="login-screen" aria-labelledby="login-title">
@@ -83,12 +83,84 @@
             <div class="page-heading">
               <div>
                 <p class="eyebrow">CUBE ROUND 3 / POD</p>
-                <h1>Operations overview</h1>
-                <p class="page-subtitle">Follow a unit from receiving through its final commerce outcome.</p>
+                <h1>Start a Workflow</h1>
+                <p class="page-subtitle">Upload your images. The system will determine the appropriate workflow.</p>
               </div>
               <span class="flow-label"><span class="flow-pulse"></span>STANDARD FLOW</span>
             </div>
 
+            <div class="content-grid">
+              <section class="panel create-panel">
+                <div class="panel-heading">
+                  <div>
+                    <p class="eyebrow">NEW RUN</p>
+                    <h2>Start a workflow</h2>
+                  </div>
+                  <span class="step-index">01</span>
+                </div>
+                <p class="panel-intro">1. Add images · 2. Confirm associations · 3. Start processing</p>
+                <form id="create-form" class="form-stack">
+                  <input name="org_id" type="hidden">
+                  <div id="upload-drop" class="upload-drop">
+                    <span class="upload-symbol" aria-hidden="true">↑</span>
+                    <h3>Drop your images here</h3>
+                    <p>Multiple angles, products, or inspection stages</p>
+                    <label class="button button-primary" for="image-picker">Choose images / Add more</label>
+                    <input id="image-picker" type="file" accept="image/jpeg,image/png,image/webp" multiple>
+                    <small>JPEG, PNG, WebP · 10 MB per image · up to 24 images</small>
+                  </div>
+                  <div id="upload-list" class="upload-list" aria-live="polite"></div>
+                  <p class="form-hint">Enter the registered unit or order subject. The system matches each image to trusted capture records and resolves its association automatically. Multiple subjects start separate workflows; shared shipment photos need an existing order registration. Missing or ambiguous registrations will be shown for resolution.</p>
+                  <div class="form-row">
+                    <label class="field">
+                      <span>Fulfilment route</span>
+                      <select name="route" required>
+                        <option value="">Choose…</option>
+                        <option value="fba">FBA</option>
+                        <option value="mfn">Merchant fulfilled</option>
+                        <option value="unknown">Unknown</option>
+                      </select>
+                    </label>
+                    <label class="field">
+                      <span>Returned?</span>
+                      <select name="returned" required>
+                        <option value="">Choose…</option>
+                        <option value="true">Yes</option>
+                        <option value="false">No</option>
+                      </select>
+                    </label>
+                  </div>
+                  <p class="form-hint">Review every image association before submitting. The configured workflow chooses applicable stages. Upload acceptance does not mean AI approval.</p>
+                  <button class="button button-primary button-full" type="submit" id="create-submit">
+                    Validate &amp; start <span aria-hidden="true">→</span>
+                  </button>
+                  <p class="form-message" id="create-message" role="status" aria-live="polite"></p>
+                </form>
+                <details class="audit-details">
+                  <summary>Start from existing registered evidence</summary>
+                  <form id="registered-form" class="form-stack">
+                    <label class="field">Registered unit / subject ID<input name="unit_id" required maxlength="160"></label>
+                    <p class="form-hint">Uses existing server registrations and sample routing defaults. No new images are uploaded.</p>
+                    <button class="button button-quiet" type="submit">Start registered workflow</button>
+                    <p id="registered-message" class="form-message" role="status"></p>
+                  </form>
+                </details>
+              </section>
+
+              <section class="panel recent-panel">
+                <div class="panel-heading panel-heading-row">
+                  <div>
+                    <p class="eyebrow">ACTIVITY</p>
+                    <h2>Recent workflows</h2>
+                  </div>
+                  <button class="text-button" type="button" data-page-target="workflows">View all <span aria-hidden="true">→</span></button>
+                </div>
+                <p class="panel-intro">This list is stored in the current browser. Open a workflow by ID to add it here.</p>
+                <div class="workflow-list" id="overview-workflows">
+                  <div class="loading-state"><span class="spinner" aria-hidden="true"></span>Loading recent workflows…</div>
+                </div>
+              </section>
+            </div>
             <section class="metrics-grid" aria-label="Recent workflow summary">
               <article class="metric-card">
                 <span class="metric-label">RECENT WORKFLOWS</span>
@@ -116,7 +188,7 @@
               <div class="panel-heading panel-heading-row">
                 <div>
                   <p class="eyebrow">INTEGRATED PIPELINE</p>
-                  <h2 id="agent-overview-title">Five agent managers</h2>
+                  <h2 id="agent-overview-title">Processing services</h2>
                 </div>
                 <span class="agent-count" id="agent-count">Checking</span>
               </div>
@@ -125,67 +197,6 @@
               </div>
             </section>
 
-            <div class="content-grid">
-              <section class="panel create-panel">
-                <div class="panel-heading">
-                  <div>
-                    <p class="eyebrow">NEW RUN</p>
-                    <h2>Start a workflow</h2>
-                  </div>
-                  <span class="step-index">01</span>
-                </div>
-                <p class="panel-intro">The orchestrator runs the applicable agents and records each stage's evidence.</p>
-                <form id="create-form" class="form-stack">
-                  <label class="field">
-                    <span>Organization ID</span>
-                    <input name="org_id" type="text" autocomplete="organization" readonly required maxlength="120">
-                    <small>Selected by the authenticated tenant session.</small>
-                  </label>
-                  <label class="field">
-                    <span>Unit or subject ID</span>
-                    <input name="unit_id" type="text" placeholder="UNIT-0014" required maxlength="160">
-                  </label>
-                  <div class="form-row">
-                    <label class="field">
-                      <span>Fulfilment route</span>
-                      <select name="route">
-                        <option value="">Auto-detect from sample data</option>
-                        <option value="fba">FBA</option>
-                        <option value="mfn">Merchant fulfilled</option>
-                        <option value="unknown">Unknown</option>
-                      </select>
-                    </label>
-                    <label class="field">
-                      <span>Returned?</span>
-                      <select name="returned">
-                        <option value="">Auto-detect from sample data</option>
-                        <option value="true">Yes</option>
-                        <option value="false">No</option>
-                      </select>
-                    </label>
-                  </div>
-                  <p class="form-hint">Submitting starts the workflow immediately. Route and return status default to sample data; each agent uses its separately registered trusted inputs.</p>
-                  <button class="button button-primary button-full" type="submit" id="create-submit">
-                    Start workflow <span aria-hidden="true">→</span>
-                  </button>
-                  <p class="form-message" id="create-message" role="status" aria-live="polite"></p>
-                </form>
-              </section>
-
-              <section class="panel recent-panel">
-                <div class="panel-heading panel-heading-row">
-                  <div>
-                    <p class="eyebrow">ACTIVITY</p>
-                    <h2>Recent workflows</h2>
-                  </div>
-                  <button class="text-button" type="button" data-page-target="workflows">View all <span aria-hidden="true">→</span></button>
-                </div>
-                <p class="panel-intro">This list is stored in the current browser. Open a workflow by ID to add it here.</p>
-                <div class="workflow-list" id="overview-workflows">
-                  <div class="loading-state"><span class="spinner" aria-hidden="true"></span>Loading recent workflows…</div>
-                </div>
-              </section>
-            </div>
           </section>
 
           <section class="page-section" data-page="workflows" hidden>

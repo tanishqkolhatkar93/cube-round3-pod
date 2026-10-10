@@ -34,7 +34,8 @@ def offline(monkeypatch):
     for module in (gemini, groq):
         monkeypatch.setattr(module, "build_opener", blocked)
     for key in ("GEMINI_API_KEY", "GEMINI_MODEL", "GEMINI_TIMEOUT_SECONDS",
-                "GEMINI_FREE_TIER_CONFIRMED", "GROQ_API_KEY"):
+                "GEMINI_FREE_TIER_CONFIRMED", "GROQ_API_KEY", "GROQ_API_KEY_ENV",
+                "GROQ_API_KEY_2", "GROQ_API_KEY_3", "GROQ_API_KEY_4"):
         monkeypatch.delenv(key, raising=False)
     monkeypatch.setenv("GEMINI_API_KEY", TEST_KEY)
     monkeypatch.setenv("GEMINI_FREE_TIER_CONFIRMED", "1")
@@ -77,6 +78,95 @@ def test_explicit_selection_without_network(name):
     provider, public = providers.select_provider({"name": name, "settings": {"timeout_seconds": 10}})
     assert provider.name == name and provider.mode == "real"
     assert TEST_KEY not in json.dumps(public) + repr(provider)
+
+
+@pytest.mark.parametrize("selector", [None, "GROQ_API_KEY", "GROQ_API_KEY_2", "GROQ_API_KEY_3", "GROQ_API_KEY_4"])
+def test_groq_explicit_credential_reaches_real_adapter(existing, monkeypatch, selector):
+    selected = selector or "GROQ_API_KEY"
+    sentinel = "SELECTED_OFFLINE_SENTINEL"
+    if selector:
+        monkeypatch.setenv("GROQ_API_KEY_ENV", selector)
+    monkeypatch.setenv(selected, sentinel)
+    adapter, transport = cloud(existing, "groq", monkeypatch)
+    out = adapter.handle(request_for())
+    assert out["status"] == "completed" and out["verdict"] == "UNCERTAIN"
+    assert out["evidence"]["payload"]["vision_run"]["status"] == "validated"
+    assert adapter.handle(request_for()) == out
+    transport.assert_called_once()
+    assert transport.call_args.args[3] == sentinel
+    assert transport.call_args.args[1]["model"] == groq.MODEL
+    assert sentinel not in json.dumps(out)
+
+
+@pytest.mark.parametrize("value", [None, ""])
+@pytest.mark.parametrize("selector", ["GROQ_API_KEY", "GROQ_API_KEY_2", "GROQ_API_KEY_3", "GROQ_API_KEY_4"])
+def test_groq_selected_missing_key_has_no_fallback(monkeypatch, value, selector):
+    monkeypatch.setenv("GROQ_API_KEY_ENV", selector)
+    for name in ("GROQ_API_KEY", "GROQ_API_KEY_2", "GROQ_API_KEY_3", "GROQ_API_KEY_4"):
+        monkeypatch.setenv(name, TEST_KEY)
+    monkeypatch.delenv(selector)
+    if value is not None:
+        monkeypatch.setenv(selector, value)
+    with pytest.raises(Rejected, match="^groq_key_missing$"):
+        providers.select_provider({"name": "groq", "settings": {"timeout_seconds": 10}})
+
+
+@pytest.mark.parametrize("value", [" ", "OFFLINE\nINVALID"])
+def test_groq_malformed_selected_credential_is_sanitized(monkeypatch, value):
+    monkeypatch.setenv("GROQ_API_KEY_ENV", "GROQ_API_KEY_2")
+    monkeypatch.setenv("GROQ_API_KEY_2", value)
+    with pytest.raises(Rejected) as caught:
+        providers.select_provider({"name": "groq"})
+    assert str(caught.value) == "groq_invalid_configuration"
+
+
+def test_groq_unselected_primary_does_not_affect_explicit_selection(monkeypatch):
+    monkeypatch.setenv("GROQ_API_KEY", "INVALID PRIMARY")
+    monkeypatch.setenv("GROQ_API_KEY_ENV", "GROQ_API_KEY_4")
+    monkeypatch.setenv("GROQ_API_KEY_4", TEST_KEY)
+    provider, public = providers.select_provider({"name": "groq", "settings": {"timeout_seconds": 10}})
+    assert provider.provider.config.api_key == TEST_KEY
+    assert public["name"] == "groq" and public["settings"]["model"] == groq.MODEL
+
+
+@pytest.mark.parametrize("selector", ["", "PATH", "GROQ_API_KEY_5", "SECRET-selector"])
+def test_groq_invalid_selector_is_sanitized(monkeypatch, selector):
+    monkeypatch.setenv("GROQ_API_KEY_ENV", selector)
+    with pytest.raises(Rejected) as caught:
+        providers.select_provider({"name": "groq"})
+    assert str(caught.value) == "groq_invalid_key_selector"
+
+
+@pytest.mark.parametrize("status,diagnostic", [(401, "groq_authentication_failed"),
+    (403, "groq_authentication_failed"), (404, "groq_model_unavailable"),
+    (429, "groq_rate_limited"), (500, "groq_http_error"), (502, "groq_http_error"),
+    (503, "groq_overloaded"), (504, "groq_http_error")])
+def test_groq_selected_key_failure_never_rotates(existing, monkeypatch, status, diagnostic):
+    monkeypatch.setenv("GROQ_API_KEY_ENV", "GROQ_API_KEY_2")
+    monkeypatch.setenv("GROQ_API_KEY_2", "SELECTED_OFFLINE_SENTINEL")
+    monkeypatch.setenv("GROQ_API_KEY_3", "UNUSED_OFFLINE_SENTINEL")
+    monkeypatch.setattr(providers, "GeminiVisionProvider", Mock(side_effect=AssertionError("no fallback")))
+    monkeypatch.setattr(providers, "OllamaVisionProvider", Mock(side_effect=AssertionError("no fallback")))
+    adapter, transport = cloud(existing, "groq", monkeypatch, failure=groq.GroqHTTPFailure(status))
+    out = adapter.handle(request_for())
+    assert out["status"] == "pending" and out["verdict"] == "UNCERTAIN"
+    assert out["evidence"]["payload"]["provider_diagnostic"] == diagnostic
+    assert adapter.handle(request_for()) == out
+    transport.assert_called_once()
+    assert transport.call_args.args[3] == "SELECTED_OFFLINE_SENTINEL"
+    assert "OFFLINE_SENTINEL" not in json.dumps(out)
+
+
+@pytest.mark.parametrize("status", [429, 500, 502, 503, 504])
+def test_groq_http_transport_does_not_retry_transient_errors(monkeypatch, status):
+    opener = Mock()
+    opener.open.side_effect = HTTPError(groq.ENDPOINT, status, "SECRET", {}, io.BytesIO(b"SECRET"))
+    monkeypatch.setattr(groq, "build_opener", Mock(return_value=opener))
+    with pytest.raises(groq.GroqHTTPFailure) as caught:
+        groq.post_json(groq.ENDPOINT, {}, 10, TEST_KEY)
+    assert caught.value.status == status
+    assert str(caught.value) == "groq_http_error"
+    opener.open.assert_called_once()
 
 
 @pytest.mark.parametrize("selection,code", [

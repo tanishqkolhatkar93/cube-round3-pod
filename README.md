@@ -62,6 +62,44 @@ Set unique values for `ORG_ALPHA_TOKEN` and `ORG_BRAVO_TOKEN` in your untracked 
 
 The console uses the existing tenant-scoped workflow API; tenant tokens are loaded only into the server process and compared server-side. Sign-in creates a random opaque server-side session; the tenant token itself is never sent back to the browser. Sessions expire after eight hours and are process-local, so a service restart signs users out and multi-worker deployments need a shared session store. The recorded actor is the shared tenant-token operator, not a verified individual identity. Do not commit `.env` or expose this local/demo service publicly without TLS, strong unique secrets, and deployment-grade authentication and authorization. Each agent still requires its own trusted registration and state configuration described in that agent's README; the UI does not configure agent providers, captures, or credentials.
 
+The frontend is vanilla JavaScript served by FastAPI on the same origin. No React
+server or separate API base URL is required. For frontend validation (Node 22.12+
+or a compatible Vite-supported version):
+
+```sh
+npm --prefix frontend ci
+npm --prefix frontend test
+npm --prefix frontend run build
+```
+
+The build writes ignored `frontend/dist/` assets. The existing FastAPI server
+continues to serve the source assets; no hosting configuration is changed.
+The Node tests exercise application functions with controlled network/DOM seams;
+they supplement browser smoke tests, not replace them.
+
+On Windows, install current root requirements before starting (including
+`python-dotenv`, needed for `--env-file`). Copy `.env.example` to an untracked
+`.env`, supply unique tenant tokens, and configure the applicable managers:
+`PREP_CONFIG`/`PREP_STATE_DIR`, `PACK_CONFIG`/`PACK_STATE_DIR`,
+`RETURNS_CONFIG`/`RETURNS_STATE_DIR`, `RECOVERY_CONFIG`/`RECOVERY_STATE_DIR`,
+plus `RECEIVING_CAPTURE_REGISTRY` and Receiving's state/cache paths. Registration
+files must reference actual trusted, hash-bound sources as specified in each
+manager README. A provider key by itself does not configure a manager.
+`--env-file .env` explicitly loads these settings; a bare Python import does not.
+
+Orchestrator health now calls each manager's own health check in both execution
+modes. Degraded configuration is visible before a workflow starts. These checks
+do not invoke providers or establish model availability. Returns provider
+selection and timeout settings belong in its registration JSON; see
+[Returns provider configuration](agents/returns/PROVIDERS.md). No provider is
+silently substituted when configuration or inference fails.
+
+For the checked environment inventory, per-manager readiness, exact registration
+interfaces and remaining live-demo prerequisites, see
+[Configuration readiness](docs/CONFIGURATION-READINESS.md). The authenticated
+offline API/persistence smoke test is
+`python -m pytest tests/e2e/test_configured_console.py`.
+
 Run an agent as its own service:
 
 ```sh

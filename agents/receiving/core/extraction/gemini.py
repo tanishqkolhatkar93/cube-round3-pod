@@ -52,6 +52,16 @@ class GeminiProvider(VisionProvider):
                         prompt_version=req.prompt_version, latency_ms=int((time.monotonic()-started)*1000),
                         tokens=int(getattr(usage, "total_token_count", 0) or 0))
                 except Exception as exc:
+                    # Preserve actionable categories without retaining provider text.
+                    # A rejected request must not consume retries or fallback models.
+                    from google.genai.errors import APIError
+                    if isinstance(exc, APIError):
+                        last = {400: "provider_request_rejected", 401: "provider_authentication_failed",
+                                403: "provider_authentication_failed", 404: "provider_model_unavailable",
+                                429: "provider_rate_limited", 503: "provider_overloaded"}.get(
+                                    exc.code, "provider_http_error")
+                        attempt["outcome"] = last
+                        raise Failure(last) from None
                     last = classify(exc)
                     attempt["outcome"] = last
                     if last == "agent_timeout":

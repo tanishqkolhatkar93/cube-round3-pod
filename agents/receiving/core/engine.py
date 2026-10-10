@@ -19,7 +19,14 @@ def run_engine(images):
                     prov, mid = svc.observe(hashlib.sha256(raw).hexdigest(), image_id, raw, stats=stats, deadline=deadline)
                     provs.append(prov)
                 except Exception as exc:
-                    errors.append({"image_id": image_id, "code": classify(exc)})
+                    code = classify(exc)
+                    errors.append({"image_id": image_id, "code": code})
+                    if code in {"provider_authentication_failed", "provider_rate_limited",
+                                "provider_overloaded", "provider_model_unavailable",
+                                "provider_request_rejected", "provider_http_error"}:
+                        # The remaining images cannot repair this provider rejection.
+                        # Preserve prior work and return incomplete instead of retrying.
+                        break
     except Exception as exc:
         errors.append({"code": classify(exc)})
     return provs, stats, errors

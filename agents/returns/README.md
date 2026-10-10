@@ -69,6 +69,41 @@ Missing live images and provider failures produce contract-valid pending/UNCERTA
 
 The real Ollama transport boundary is tested with a mock transport, not with a live model. All generated test pixels and responses are explicitly test fixtures. No live inference success is claimed.
 
+## Explicit Groq credentials
+
+Only Returns currently selects Groq. Its adapter supports `qwen/qwen3.8-27b`
+and one validated JPEG per inspection. Groq documents this model as accepting
+text and images: https://console.groq.com/docs/model/qwen/qwen3.8-27b.
+Other Groq models are not selectable through this adapter.
+
+Set `provider.name` to `groq` and `provider.settings.timeout_seconds` to a value
+at most 20 in the approved Returns registration. `GROQ_API_KEY` is the default
+credential. Optionally set `GROQ_API_KEY_ENV` to exactly one of `GROQ_API_KEY`,
+`GROQ_API_KEY_2`, `GROQ_API_KEY_3`, or `GROQ_API_KEY_4`. Supply the selected
+credential privately through the service environment. Missing/empty selected keys
+fail with `groq_key_missing`; unsupported names fail with `groq_invalid_key_selector`.
+No alternative key is tried. Restart the service to inherit changed Windows User
+environment variables. The documented `--env-file .env` launch loads the ignored
+local file; importing the adapter alone does not load it.
+
+The transport makes one request with no retries, redirect following, credential
+rotation, or provider fallback. HTTP 401/403, 404, 429 and 503 yield fixed
+authentication, model-unavailable, rate-limit and overload diagnostics. Other
+HTTP failures remain `groq_http_error`. Keys are excluded from effective provider
+configuration and evidence. Existing image ownership/hash, canonical validation,
+deterministic rules and replay requirements still apply.
+
+On 2026-10-10, one primary-key text-only smoke test using the existing transport
+returned HTTP 200 in 270 ms, with matching `qwen/qwen3.8-27b` attribution and valid
+JSON. It was not an image inspection or an end-to-end manager assessment.
+
+Credential-selection validation: 105 focused provider/credential tests passed.
+The full current working-tree suite reported 704 passed, one existing skip, and
+one unrelated frontend text assertion failure in
+`test_operations_console_and_tenant_sessions` (expected `Five agent managers`).
+That failure reproduced independently; no frontend file or assertion was changed
+as part of the Groq work. Python compilation and `git diff --check` passed.
+
 ## Evidence and immutable history
 
 `RTN-` record IDs are SHA-256 identifiers bound to tenant and request ID, avoiding global evidence-store collisions between workflows/attempts. The source RTN ID is preserved in payload. Output preserves capture source/hash, original timestamp, canonical assessment, validated run/metadata, source/attempt IDs and traceable input citations. No condition grade/disposition policy is added; `pending_review` remains the engine's disposition. Successful validated observations can yield completed evidence while condition/disposition still need human review.
