@@ -100,6 +100,21 @@ interfaces and remaining live-demo prerequisites, see
 offline API/persistence smoke test is
 `python -m pytest tests/e2e/test_configured_console.py`.
 
+### Deploying the console to Render
+
+The root [`render.yaml`](render.yaml) defines a free Python web service for the
+same-origin console and API. In Render, create a **New Blueprint Instance** for
+this repository and branch, then set unique, high-entropy values for
+`ORG_ALPHA_TOKEN` and `ORG_BRAVO_TOKEN` when prompted. Do not enable
+`ORCH_DEMO_PRINCIPAL` on a public service. After deployment, use the service URL
+to open the console and sign in with one of the configured tenant tokens.
+
+The free service has ephemeral storage and may sleep; workflow/evidence files
+under `out/` can be lost when the service restarts or redeploys. This Blueprint
+does not configure trusted manager registrations, provider credentials, or
+capture data. Until those are added as protected service configuration, `/health`
+can report degraded and complete workflows are not ready.
+
 Run an agent as its own service:
 
 ```sh

@@ -1,0 +1,17 @@
+services:
+  - type: web
+    name: cube-round3-pod
+    runtime: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn orchestration.api:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /health
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.12.11
+      - key: ORG_ALPHA_TOKEN
+        sync: false
+      - key: ORG_BRAVO_TOKEN
+        sync: false
+      - key: OUT_DIR
+        value: out
